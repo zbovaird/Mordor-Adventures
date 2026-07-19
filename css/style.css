@@ -40,6 +40,7 @@ body {
 #controls-help,
 #message,
 #start-btn,
+#quick-moria-btn,
 #reset-btn,
 #actions-menu,
 #win-screen,
@@ -82,6 +83,62 @@ header h1 {
 
 #hud p + p {
   margin-top: 8px;
+}
+
+#combat-hud {
+  position: absolute;
+  top: 112px;
+  left: 50%;
+  width: min(620px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  border: 2px solid rgba(205, 188, 153, 0.75);
+  border-radius: 16px;
+  padding: 12px 16px;
+  color: #fff7e5;
+  background: rgba(18, 16, 15, 0.86);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+}
+
+.health-heading {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 7px;
+  font-size: 1rem;
+}
+
+.health-track {
+  height: 22px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  background: rgba(65, 20, 18, 0.82);
+}
+
+#health-fill,
+#boss-health-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #b71c1c, #ef5350 55%, #ff8a65);
+  transition: width 0.2s ease;
+}
+
+#boss-health {
+  margin-top: 12px;
+}
+
+.boss-heading {
+  color: #ffb08a;
+}
+
+.boss-track {
+  border-color: rgba(255, 91, 48, 0.65);
+  background: rgba(36, 5, 3, 0.9);
+}
+
+#boss-health-fill {
+  background: linear-gradient(90deg, #7f0000, #ff3d00 60%, #ffab40);
 }
 
 #controls-help {
@@ -222,7 +279,8 @@ header h1 {
 
 #action-btn:disabled,
 #ring-btn:disabled,
-#level-rivendell-btn:disabled {
+#level-rivendell-btn:disabled,
+#level-lothlorien-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
   filter: none;
@@ -263,6 +321,7 @@ header h1 {
 }
 
 #start-btn,
+#quick-moria-btn,
 #restart-btn {
   position: absolute;
   left: 50%;
@@ -280,8 +339,15 @@ header h1 {
 }
 
 #start-btn:hover,
+#quick-moria-btn:hover,
 #restart-btn:hover {
   filter: brightness(1.05);
+}
+
+#quick-moria-btn {
+  top: 68%;
+  background: linear-gradient(180deg, #5f6368, #2f3337);
+  border: 2px solid #a89b84;
 }
 
 #win-screen {
@@ -340,7 +406,9 @@ header h1 {
 }
 
 #level-shire-btn,
-#level-rivendell-btn {
+#level-rivendell-btn,
+#level-moria-btn,
+#level-lothlorien-btn {
   border: none;
   border-radius: 999px;
   padding: 14px 22px;
@@ -356,7 +424,17 @@ header h1 {
   background: linear-gradient(180deg, #7e57c2, #5e35b1);
 }
 
+#level-moria-btn {
+  background: linear-gradient(180deg, #5f6368, #292d30);
+}
+
+#level-lothlorien-btn:not(:disabled) {
+  background: linear-gradient(180deg, #b59b43, #667c3f);
+}
+
 #level-shire-btn:hover,
-#level-rivendell-btn:not(:disabled):hover {
+#level-rivendell-btn:not(:disabled):hover,
+#level-moria-btn:hover,
+#level-lothlorien-btn:not(:disabled):hover {
   filter: brightness(1.05);
 }

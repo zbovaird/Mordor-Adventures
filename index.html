@@ -16,6 +16,20 @@
         <p id="objective">Open Bag End, find the One Ring, then reach the exit gate.</p>
         <p id="status">Ring: not found</p>
       </div>
+      <div id="combat-hud" class="hidden" aria-label="Combat health">
+        <div class="health-heading">
+          <strong>Frodo</strong>
+          <span id="health-text">100 / 100</span>
+        </div>
+        <div class="health-track"><span id="health-fill"></span></div>
+        <div id="boss-health" class="hidden">
+          <div class="health-heading boss-heading">
+            <strong>Durin's Bane</strong>
+            <span id="boss-health-text">320 / 320</span>
+          </div>
+          <div class="health-track boss-track"><span id="boss-health-fill"></span></div>
+        </div>
+      </div>
       <button id="reset-btn" class="hidden" type="button">Reset Game</button>
       <div id="actions-menu" class="hidden" aria-label="Available actions">
         <p class="actions-title">Actions</p>
@@ -43,6 +57,7 @@
         <p class="hint">Poly Haven textures (CC0) · custom hobbit &amp; Shire</p>
       </div>
       <button id="start-btn" class="hidden" type="button">Start Adventure</button>
+      <button id="quick-moria-btn" class="hidden" type="button">Test Level 3 — Mines of Moria</button>
       <div id="win-screen" class="hidden">
         <h2 id="win-title">You did it, Frodo!</h2>
         <p id="win-text">You found the One Ring and reached the Shire gate.</p>
@@ -54,6 +69,8 @@
         <div class="level-actions">
           <button id="level-shire-btn" type="button">Level 1 — The Shire</button>
           <button id="level-rivendell-btn" type="button" disabled>Level 2 — Rivendell (locked)</button>
+          <button id="level-moria-btn" type="button">Level 3 — Mines of Moria (test)</button>
+          <button id="level-lothlorien-btn" type="button">Level 4 — Lothlórien (test)</button>
         </div>
       </div>
     </div>

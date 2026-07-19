@@ -4,15 +4,28 @@ export function loadProgress() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return { level1Complete: false, currentLevel: "shire" };
+      return {
+        level1Complete: false,
+        level3Complete: false,
+        level4Complete: false,
+        currentLevel: "shire",
+      };
     }
     const data = JSON.parse(raw);
+    const validLevels = new Set(["shire", "rivendell", "moria", "lothlorien"]);
     return {
       level1Complete: Boolean(data.level1Complete),
-      currentLevel: data.currentLevel === "rivendell" ? "rivendell" : "shire",
+      level3Complete: Boolean(data.level3Complete),
+      level4Complete: Boolean(data.level4Complete),
+      currentLevel: validLevels.has(data.currentLevel) ? data.currentLevel : "shire",
     };
   } catch {
-    return { level1Complete: false, currentLevel: "shire" };
+    return {
+      level1Complete: false,
+      level3Complete: false,
+      level4Complete: false,
+      currentLevel: "shire",
+    };
   }
 }
 
@@ -24,4 +37,12 @@ export function saveProgress(patch) {
 
 export function markLevel1Complete() {
   return saveProgress({ level1Complete: true });
+}
+
+export function markLevel3Complete() {
+  return saveProgress({ level3Complete: true });
+}
+
+export function markLevel4Complete() {
+  return saveProgress({ level4Complete: true });
 }

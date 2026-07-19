@@ -13,8 +13,29 @@ import {
   resetRivendellQuest,
   animateRivendellWater,
 } from "./levels/rivendell.js";
+import {
+  buildMoriaLevel,
+  resetMoriaLevel,
+  updateMoriaActors,
+  damageMoriaEnemy,
+  animateMoriaWorld,
+} from "./levels/moria.js";
+import {
+  buildLothlorienLevel,
+  resetLothlorienQuest,
+  nearestLothlorienNpc,
+  tryGaladrielInteraction,
+  updateLothlorienLevel,
+  lothlorienSpawn,
+} from "./levels/lothlorien.js";
 import { nearestNpc, updateNpcIdle, TALK_RANGE } from "./npcs.js";
-import { loadProgress, saveProgress, markLevel1Complete } from "./progress.js";
+import {
+  loadProgress,
+  saveProgress,
+  markLevel1Complete,
+  markLevel3Complete,
+  markLevel4Complete,
+} from "./progress.js";
 import {
   createEnvMap,
   createSkyDome,
@@ -36,10 +57,12 @@ const TURN_SPEED = 8;
 const MOUSE_SENSITIVITY = 0.0022;
 const PLAYER_RADIUS = 0.34;
 const PLAYER_HEIGHT = 1.05;
-const ATTACK_RANGE = 1.85;
-const ATTACK_COOLDOWN = 0.55;
-const ATTACK_DURATION = 0.52;
-const HIT_FRAME = 0.24;
+const ATTACK_RANGE = 2.05;
+const ATTACK_COOLDOWN = 0.48;
+const ATTACK_DURATION = 0.66;
+const HIT_FRAME = 0.23;
+const HIT_WINDOW_END = 0.43;
+const ATTACK_ARC_DOT = 0.52;
 const FIREPLACE_RANGE = 2.6;
 const BED_RANGE = 2.4;
 const RING_INVIS_DURATION = 10;
@@ -72,9 +95,18 @@ const ui = {
   actionLabel: document.getElementById("action-label"),
   ringBtn: document.getElementById("ring-btn"),
   ringLabel: document.getElementById("ring-label"),
+  combatHud: document.getElementById("combat-hud"),
+  healthText: document.getElementById("health-text"),
+  healthFill: document.getElementById("health-fill"),
+  bossHealth: document.getElementById("boss-health"),
+  bossHealthText: document.getElementById("boss-health-text"),
+  bossHealthFill: document.getElementById("boss-health-fill"),
   levelSelect: document.getElementById("level-select"),
   levelShireBtn: document.getElementById("level-shire-btn"),
   levelRivendellBtn: document.getElementById("level-rivendell-btn"),
+  levelMoriaBtn: document.getElementById("level-moria-btn"),
+  levelLothlorienBtn: document.getElementById("level-lothlorien-btn"),
+  quickMoriaBtn: document.getElementById("quick-moria-btn"),
   levelSubtitle: document.getElementById("level-subtitle"),
   loading: document.getElementById("loading"),
   loadingBar: document.getElementById("loading-bar"),
@@ -226,12 +258,27 @@ class Game {
     this.progress = loadProgress();
     this.npcs = [];
     this.rivendellBuilt = false;
+    this.moriaBuilt = false;
+    this.moriaOrcs = [];
+    this.moriaAllies = [];
+    this.moriaEnemies = [];
+    this.balrog = null;
+    this.lothlorienBuilt = false;
+    this.lothlorienNpcs = [];
+    this.lothlorienCompanions = [];
+    this.lothlorienGiftGroups = [];
+    this.lothlorienQuest = null;
+    this.playerMaxHealth = 100;
+    this.playerHealth = 100;
+    this.playerDamageCooldown = 0;
     this.gameTime = 0;
     this.footstepTimer = 0;
     this.attackCooldown = 0;
     this.attackTimer = 0;
     this.attackActive = false;
     this.attackHit = false;
+    this.attackDirection = 1;
+    this.attackHitTargets = new Set();
     this.coyoteTimer = 0;
     this.jumpBufferTimer = 0;
     this.cameraYaw = Math.PI;
@@ -317,6 +364,9 @@ class Game {
     } else {
       this.scene.environment = createEnvMap(this.renderer);
     }
+    this.defaultBackground = this.scene.background;
+    this.defaultExposure = this.renderer.toneMappingExposure;
+    this.defaultSkyVisible = this.sky?.visible ?? false;
 
     // Apply grass PBR to ground texture helper
     if (this.natureTextures?.grassMap) {
@@ -337,6 +387,7 @@ class Game {
     this.state = "menu";
     ui.loading.classList.add("hidden");
     ui.startBtn.classList.remove("hidden");
+    ui.quickMoriaBtn.classList.remove("hidden");
   }
 
   createFrodo() {
@@ -864,6 +915,9 @@ class Game {
     ui.restartBtn.addEventListener("click", () => this.onWinContinue());
     ui.levelShireBtn.addEventListener("click", () => this.selectLevel("shire"));
     ui.levelRivendellBtn.addEventListener("click", () => this.selectLevel("rivendell"));
+    ui.levelMoriaBtn.addEventListener("click", () => this.selectLevel("moria"));
+    ui.levelLothlorienBtn.addEventListener("click", () => this.selectLevel("lothlorien"));
+    ui.quickMoriaBtn.addEventListener("click", () => this.selectLevel("moria"));
   }
 
   focusGame() {
@@ -878,6 +932,7 @@ class Game {
     this.focusGame();
     this.input.requestPointerLock(this.canvas);
     ui.startBtn.classList.add("hidden");
+    ui.quickMoriaBtn.classList.add("hidden");
     ui.controlsHelp.classList.remove("hidden");
     ui.resetBtn.classList.remove("hidden");
     ui.actionsMenu.classList.remove("hidden");
@@ -891,6 +946,53 @@ class Game {
     this.clearInvisibility(true);
     this.ringCooldownTimer = 0;
     this.state = "playing";
+    if (this.levelId === "lothlorien") {
+      resetLothlorienQuest(this);
+      this.player.root.position.copy(this.lothlorienSpawn || lothlorienSpawn());
+      this.player.root.rotation.set(0, 0, 0);
+      this.player.velocity.set(0, 0, 0);
+      this.player.model.rotation.set(0, 0, 0);
+      this.player.model.position.set(0, 0, 0);
+      this.setLothlorienQuestStage(0);
+      ui.winScreen.classList.add("hidden");
+      ui.levelSelect.classList.add("hidden");
+      ui.controlsHelp.classList.remove("hidden");
+      ui.resetBtn.classList.remove("hidden");
+      this.input.enable();
+      this.focusGame();
+      this.input.requestPointerLock(this.canvas);
+      showMessage("Lothlórien quest reset. Climb safely to Galadriel's high talan.", 2200);
+      this.snapCamera();
+      return;
+    }
+    if (this.levelId === "moria") {
+      resetMoriaLevel(this);
+      this.playerHealth = this.playerMaxHealth;
+      this.playerDamageCooldown = 0;
+      this.attackActive = false;
+      this.attackTimer = 0;
+      this.attackHitTargets.clear();
+      this.player.root.position.copy(this.moriaSpawn || this.player.root.position);
+      this.player.root.rotation.set(0, 0, 0);
+      this.player.velocity.set(0, 0, 0);
+      this.player.model.rotation.set(0, 0, 0);
+      this.player.model.position.set(0, 0, 0);
+      this.player.swordPivot.visible = true;
+      ui.objective.textContent = "Fight through the Dwarrowdelf and reach the Bridge of Khazad-dûm.";
+      ui.status.textContent = "Orcs remaining: 16";
+      ui.combatHud.classList.remove("hidden");
+      ui.winScreen.classList.add("hidden");
+      ui.levelSelect.classList.add("hidden");
+      ui.controlsHelp.classList.remove("hidden");
+      ui.resetBtn.classList.remove("hidden");
+      this.input.enable();
+      this.focusGame();
+      this.input.requestPointerLock(this.canvas);
+      this.refreshMoriaHud();
+      showMessage("Moria encounter reset. The Fellowship is with you.", 1800);
+      this.snapCamera();
+      return;
+    }
     if (this.levelId === "rivendell") {
       resetRivendellQuest(this);
       ui.objective.textContent = "Enter the hall, approach Elrond, then press E.";
@@ -1267,6 +1369,8 @@ class Game {
       this.toggleBagEndFire();
     } else if (action.type === "talk") {
       this.tryTalk();
+    } else if (action.type === "galadriel") {
+      tryGaladrielInteraction(this);
     } else if (action.type === "door") {
       const door = action.door;
       door.open = true;
@@ -1288,6 +1392,17 @@ class Game {
     if (!this.player) return null;
     if (this.lyingDown) {
       return { type: "get-up", label: "Get up from bed" };
+    }
+    if (this.levelId === "lothlorien") {
+      const npc = nearestLothlorienNpc(this);
+      if (!npc || this.lothlorienQuest?.stage >= 2) return null;
+      return {
+        type: "galadriel",
+        label: this.lothlorienQuest?.stage === 1
+          ? "Receive Galadriel's gifts"
+          : "Speak with Galadriel",
+        npc,
+      };
     }
     if (this.levelId === "rivendell") {
       const npc = nearestNpc(this.npcs || [], this.player.root.position, TALK_RANGE);
@@ -1328,6 +1443,101 @@ class Game {
     ui.actionLabel.textContent = action?.label || "Nothing nearby";
   }
 
+  showGameMessage(text, duration = 1800) {
+    showMessage(text, duration);
+  }
+
+  refreshMoriaHud() {
+    if (this.levelId !== "moria") return;
+    const healthPct = Math.max(0, this.playerHealth / this.playerMaxHealth) * 100;
+    ui.healthText.textContent = `${Math.ceil(this.playerHealth)} / ${this.playerMaxHealth}`;
+    ui.healthFill.style.width = `${healthPct}%`;
+
+    const remaining = (this.moriaOrcs || []).filter((orc) => orc.alive).length;
+    if (remaining > 0) {
+      ui.status.textContent = `Orcs remaining: ${remaining}`;
+      ui.objective.textContent = "Fight through the Dwarrowdelf. The Fellowship will protect your flanks.";
+      ui.bossHealth.classList.add("hidden");
+    } else if (this.balrog?.alive) {
+      ui.status.textContent = this.balrog.active
+        ? "Boss: Durin's Bane is entering the great hall"
+        : "The bridge lies ahead";
+      ui.objective.textContent = "Hold the great hall with the Fellowship and defeat the Balrog!";
+      ui.bossHealth.classList.toggle("hidden", !this.balrog.active);
+      const bossPct = Math.max(0, this.balrog.hp / this.balrog.maxHp) * 100;
+      ui.bossHealthText.textContent = `${Math.ceil(this.balrog.hp)} / ${this.balrog.maxHp}`;
+      ui.bossHealthFill.style.width = `${bossPct}%`;
+    }
+  }
+
+  takePlayerDamage(amount, attacker = "Orc") {
+    if (this.levelId !== "moria" || this.playerDamageCooldown > 0 || this.state !== "playing") return;
+    this.playerHealth = Math.max(0, this.playerHealth - amount);
+    this.playerDamageCooldown = 0.7;
+    this.player.model.rotation.z = 0.16;
+    this.refreshMoriaHud();
+    showMessage(`${attacker} hits Frodo!`, 850);
+    if (this.playerHealth <= 0) {
+      this.state = "won";
+      this.input.disable();
+      ui.winTitle.textContent = "The Fellowship regroups";
+      ui.winText.textContent = "Moria proved dangerous. Rest, then try the battle again.";
+      ui.restartBtn.textContent = "Choose Level";
+      ui.winScreen.classList.remove("hidden");
+      ui.controlsHelp.classList.add("hidden");
+      ui.actionsMenu.classList.add("hidden");
+      ui.combatHud.classList.add("hidden");
+    }
+  }
+
+  completeMoria() {
+    if (this.won) return;
+    this.won = true;
+    this.state = "won";
+    this.input.disable();
+    markLevel3Complete();
+    this.refreshLevelSelectUi();
+    ui.winTitle.textContent = "The Bridge is won!";
+    ui.winText.textContent = "Durin's Bane is defeated. The golden woods of Lothlórien are now unlocked.";
+    ui.restartBtn.textContent = "Choose Level";
+    ui.winScreen.classList.remove("hidden");
+    ui.controlsHelp.classList.add("hidden");
+    ui.actionsMenu.classList.add("hidden");
+    ui.combatHud.classList.add("hidden");
+    ui.bossHealth.classList.add("hidden");
+    this.sfx.win();
+  }
+
+  setLothlorienQuestStage(stage) {
+    if (stage === 0) {
+      ui.objective.textContent = "Climb the protected walkways to Galadriel's high talan.";
+      ui.status.textContent = "Gifts of Lórien: not yet received";
+    } else if (stage === 1) {
+      ui.objective.textContent = "Speak with Galadriel again to receive gifts for the Fellowship.";
+      ui.status.textContent = "Gifts of Lórien: ready";
+    } else {
+      ui.objective.textContent = "The Fellowship is equipped for the road ahead.";
+      ui.status.textContent = "Gifts of Lórien: received";
+    }
+    this.updateActionUi();
+  }
+
+  completeLothlorien() {
+    if (this.won) return;
+    this.won = true;
+    this.state = "won";
+    this.input.disable();
+    markLevel4Complete();
+    this.refreshLevelSelectUi();
+    ui.winTitle.textContent = "The Gifts of Lórien";
+    ui.winText.textContent = "Galadriel has armed and equipped the Fellowship for the next stage of the journey.";
+    ui.restartBtn.textContent = "Choose Level";
+    ui.winScreen.classList.remove("hidden");
+    ui.controlsHelp.classList.add("hidden");
+    ui.actionsMenu.classList.add("hidden");
+    this.sfx.win();
+  }
+
   tryAttack() {
     if (this.attackCooldown > 0 || this.attackActive) {
       return;
@@ -1336,37 +1546,58 @@ class Game {
     this.attackActive = true;
     this.attackTimer = 0;
     this.attackHit = false;
+    this.attackHitTargets.clear();
+    this.attackDirection *= -1;
     this.attackCooldown = ATTACK_COOLDOWN;
+    if (this.input.pointerLocked) {
+      this.player.facing.set(Math.sin(this.cameraYaw), 0, Math.cos(this.cameraYaw));
+      this.player.root.rotation.y = this.cameraYaw;
+    }
     this.sfx.swordSwing();
   }
 
   landSwordHit() {
-    if (!this.orc || this.orc.stunned) {
-      return;
-    }
-
     const playerPos = this.player.root.position;
-    const toOrc = this.orc.root.position.clone().sub(playerPos);
-    toOrc.y = 0;
-    const distance = toOrc.length();
-    if (distance > ATTACK_RANGE) {
-      showMessage("Swing closer to the orc!", 1200);
-      return;
+    const targets = this.levelId === "moria"
+      ? (this.moriaEnemies || []).filter((enemy) => enemy.alive && enemy.root.visible)
+      : this.orc && !this.orc.stunned
+        ? [this.orc]
+        : [];
+    let best = null;
+    let bestDistance = Infinity;
+    const targetPosition = new THREE.Vector3();
+    for (const target of targets) {
+      if (this.attackHitTargets.has(target)) continue;
+      target.root.getWorldPosition(targetPosition);
+      const direction = targetPosition.clone().sub(playerPos);
+      direction.y = 0;
+      const distance = direction.length();
+      const range = target.kind === "balrog" ? 3.2 : ATTACK_RANGE;
+      if (distance > range || distance <= 0.001) continue;
+      direction.normalize();
+      if (this.player.facing.dot(direction) < ATTACK_ARC_DOT) continue;
+      if (distance < bestDistance) {
+        best = target;
+        bestDistance = distance;
+      }
     }
+    if (!best) return;
 
-    toOrc.normalize();
-    if (this.player.facing.dot(toOrc) < 0.15) {
-      showMessage("Face the orc to hit it!", 1200);
-      return;
-    }
-
-    this.orc.stunned = true;
-    this.orc.stunTimer = 2.6;
-    this.orc.fleeTimer = 1.5;
-    this.orc.root.rotation.z = Math.PI / 2;
-    this.spawnHitSparks(this.orc.root.position);
+    this.attackHitTargets.add(best);
+    this.attackHit = true;
+    const hitPosition = new THREE.Vector3();
+    best.root.getWorldPosition(hitPosition);
+    this.spawnHitSparks(hitPosition);
     this.sfx.swordHit();
-    showMessage("Clang! Your sword stuns the orc!", 1600);
+    if (this.levelId === "moria") {
+      damageMoriaEnemy(this, best, best.kind === "balrog" ? 16 : 24);
+    } else {
+      best.stunned = true;
+      best.stunTimer = 2.6;
+      best.fleeTimer = 1.5;
+      best.root.rotation.z = Math.PI / 2;
+      showMessage("Clang! Your sword stuns the orc!", 1600);
+    }
   }
 
   updateAttack(delta) {
@@ -1436,8 +1667,11 @@ class Game {
       );
     }
 
-    if (!this.attackHit && this.attackTimer >= HIT_FRAME) {
-      this.attackHit = true;
+    // Alternate the slash side and keep collision active only while the blade
+    // is moving through the forward arc.
+    pivot.rotation.y *= this.attackDirection;
+    pivot.rotation.z *= this.attackDirection;
+    if (this.attackTimer >= HIT_FRAME && this.attackTimer <= HIT_WINDOW_END) {
       this.landSwordHit();
     }
 
@@ -1759,6 +1993,10 @@ class Game {
     ui.levelRivendellBtn.textContent = unlocked
       ? "Level 2 — Rivendell"
       : "Level 2 — Rivendell (locked)";
+    ui.levelLothlorienBtn.disabled = false;
+    ui.levelLothlorienBtn.textContent = this.progress.level3Complete
+      ? "Level 4 — Lothlórien"
+      : "Level 4 — Lothlórien (test)";
   }
 
   showLevelSelect() {
@@ -1767,6 +2005,7 @@ class Game {
     ui.levelSelect.classList.remove("hidden");
     ui.controlsHelp.classList.add("hidden");
     ui.actionsMenu.classList.add("hidden");
+    ui.combatHud.classList.add("hidden");
     ui.resetBtn.classList.add("hidden");
     this.input.disable();
     this.state = "levelSelect";
@@ -1781,6 +2020,8 @@ class Game {
       showMessage("Complete the Shire quest first!", 2000);
       return;
     }
+    ui.startBtn.classList.add("hidden");
+    ui.quickMoriaBtn.classList.add("hidden");
     ui.levelSelect.classList.add("hidden");
     ui.fade.classList.remove("hidden");
     ui.fade.classList.add("show");
@@ -1802,10 +2043,60 @@ class Game {
     this.won = false;
     this.lyingDown = false;
     this.clearInvisibility(true);
+    this.hasRing = false;
+    ui.restartBtn.textContent = "Continue";
     ui.actionsMenu.classList.add("hidden");
+    ui.combatHud.classList.add("hidden");
     ui.winScreen.classList.add("hidden");
 
-    if (levelId === "rivendell") {
+    if (levelId === "lothlorien") {
+      buildLothlorienLevel(this);
+      this.lothlorienBuilt = true;
+      resetLothlorienQuest(this);
+      this.lothlorienSpawn = this.lothlorienSpawn || lothlorienSpawn();
+      this.applyLevelActivation("lothlorien");
+      this.player.root.position.copy(this.lothlorienSpawn);
+      this.player.root.rotation.set(0, 0, 0);
+      this.player.velocity.set(0, 0, 0);
+      this.cameraYaw = 0;
+      this.cameraPitch = 0.28;
+      this.location = "lothlorien";
+      this.scene.background = new THREE.Color(0x293c27);
+      this.scene.fog = new THREE.FogExp2(0xd7dda6, 0.012);
+      this.renderer.toneMappingExposure = 0.9;
+      if (this.sky) this.sky.visible = false;
+      if (this.sun) this.sun.intensity = 1.45;
+      ui.levelSubtitle.textContent = "Level 4 — Lothlórien";
+      ui.ringBtn.classList.add("hidden");
+      this.setLothlorienQuestStage(0);
+      showMessage("Welcome to Caras Galadhon. Follow the guarded white stairs to Galadriel.", 3600);
+    } else if (levelId === "moria") {
+      buildMoriaLevel(this);
+      this.moriaBuilt = true;
+      resetMoriaLevel(this);
+      this.playerHealth = this.playerMaxHealth;
+      this.playerDamageCooldown = 0;
+      this.applyLevelActivation("moria");
+      this.player.root.position.copy(this.moriaSpawn);
+      this.player.root.rotation.set(0, 0, 0);
+      this.player.velocity.set(0, 0, 0);
+      this.cameraYaw = 0;
+      this.cameraPitch = 0.2;
+      this.location = "moria";
+      this.scene.background = new THREE.Color(0x08090b);
+      this.scene.fog = new THREE.FogExp2(0x111418, 0.022);
+      this.renderer.toneMappingExposure = 0.66;
+      if (this.sky) this.sky.visible = false;
+      if (this.sun) this.sun.intensity = 0.28;
+      ui.levelSubtitle.textContent = "Level 3 — The Mines of Moria";
+      ui.objective.textContent = "Fight through the Dwarrowdelf and reach the Bridge of Khazad-dûm.";
+      ui.status.textContent = "Orcs remaining: 16";
+      ui.ringBtn.classList.add("hidden");
+      ui.combatHud.classList.remove("hidden");
+      ui.bossHealth.classList.add("hidden");
+      this.refreshMoriaHud();
+      showMessage("The Fellowship enters Moria. Stay together and fight toward the bridge!", 3600);
+    } else if (levelId === "rivendell") {
       buildRivendellLevel(this);
       this.rivendellBuilt = true;
       resetRivendellQuest(this);
@@ -1816,7 +2107,12 @@ class Game {
       this.cameraYaw = 0;
       this.cameraPitch = 0.28;
       this.location = "outside";
+      this.scene.background = this.defaultBackground;
       this.scene.fog = new THREE.FogExp2(0xb8d4c8, 0.012);
+      this.renderer.toneMappingExposure = this.defaultExposure;
+      if (this.sky) this.sky.visible = this.defaultSkyVisible;
+      if (this.sun) this.sun.intensity = 2.4;
+      ui.combatHud.classList.add("hidden");
       ui.levelSubtitle.textContent = "Rivendell — The Last Homely House";
       ui.objective.textContent = "Enter the hall, approach Elrond, then press E.";
       ui.status.textContent = "Fellowship: speak with Elrond first";
@@ -1840,7 +2136,12 @@ class Game {
       this.cameraYaw = Math.PI;
       this.cameraPitch = 0.32;
       this.location = "outside";
+      this.scene.background = this.defaultBackground;
       this.scene.fog = new THREE.FogExp2(0xc5dcc0, 0.014);
+      this.renderer.toneMappingExposure = this.defaultExposure;
+      if (this.sky) this.sky.visible = this.defaultSkyVisible;
+      if (this.sun) this.sun.intensity = 2.4;
+      ui.combatHud.classList.add("hidden");
       ui.levelSubtitle.textContent = "Frodo's Shire Quest";
       ui.objective.textContent = "Open Bag End, find the One Ring, then reach the exit gate.";
       ui.status.textContent = "Ring: not found";
@@ -1871,6 +2172,8 @@ class Game {
     }
     if (this.bagEndGroup) this.bagEndGroup.visible = levelId === "shire";
     if (this.rivendellGroup) this.rivendellGroup.visible = levelId === "rivendell";
+    if (this.moriaGroup) this.moriaGroup.visible = levelId === "moria";
+    if (this.lothlorienGroup) this.lothlorienGroup.visible = levelId === "lothlorien";
     if (this.orc && this.orc.root) this.orc.root.visible = levelId === "shire";
   }
 
@@ -1988,7 +2291,7 @@ class Game {
 
 
   checkWin() {
-    if (this.levelId === "rivendell" || this.won) {
+    if (this.levelId !== "shire" || this.won) {
       return;
     }
     if (!this.hasRing || !this.exitGate || this.location !== "outside") {
@@ -2067,6 +2370,7 @@ class Game {
 
     this.gameTime += delta;
     if (this.state === "playing") {
+      this.playerDamageCooldown = Math.max(0, this.playerDamageCooldown - delta);
       this.updatePlayer(delta);
       this.updateAttack(delta);
       if (this.levelId === "shire") {
@@ -2080,9 +2384,14 @@ class Game {
         this.updateFireplace(delta);
         this.updateBedUi();
         this.updateRingPower(delta);
-      } else {
+      } else if (this.levelId === "rivendell") {
         updateNpcIdle(this.npcs || [], this.gameTime);
         animateRivendellWater(this, this.gameTime);
+      } else if (this.levelId === "moria") {
+        updateMoriaActors(this, delta, this.gameTime);
+        animateMoriaWorld(this, this.gameTime);
+      } else if (this.levelId === "lothlorien") {
+        updateLothlorienLevel(this, this.gameTime);
       }
       this.updateActionUi();
       this.updateHitSparks(delta);
