@@ -56,17 +56,19 @@ function addGround(game, minX, maxX, minZ, maxZ, height) {
 
 function addMallorn(game, group, x, z, scale = 1, platformHeight = null) {
   const bark = mat(0xb7aa86, { roughness: 0.9 });
-  const trunk = mesh(new THREE.CylinderGeometry(1.75 * scale, 2.45 * scale, 18 * scale, 14), bark);
+  const trunk = mesh(new THREE.CylinderGeometry(0.85 * scale, 1.1 * scale, 18 * scale, 14), bark);
   trunk.position.set(x, 9 * scale, z);
   group.add(trunk);
+  // Keep the trunk collider slim (just inside the visual bark) so players can
+  // always walk around it on the talans and across the narrow bridges.
   addCollider(
     game,
-    x - 1.65 * scale,
-    x + 1.65 * scale,
+    x - 0.95 * scale,
+    x + 0.95 * scale,
     0,
     18 * scale,
-    z - 1.65 * scale,
-    z + 1.65 * scale
+    z - 0.95 * scale,
+    z + 0.95 * scale
   );
 
   const branchMat = mat(0x978968, { roughness: 0.92 });
@@ -74,9 +76,9 @@ function addMallorn(game, group, x, z, scale = 1, platformHeight = null) {
     const angle = (i / 7) * Math.PI * 2;
     const branch = mesh(new THREE.CylinderGeometry(0.18 * scale, 0.42 * scale, 6 * scale, 8), branchMat);
     branch.position.set(
-      x + Math.sin(angle) * 2.25 * scale,
+      x + Math.sin(angle) * 1.05 * scale,
       13.5 * scale + (i % 2) * 0.8,
-      z + Math.cos(angle) * 2.25 * scale
+      z + Math.cos(angle) * 1.05 * scale
     );
     branch.rotation.z = Math.PI / 2.8;
     branch.rotation.y = angle;
@@ -131,6 +133,25 @@ function addMallorn(game, group, x, z, scale = 1, platformHeight = null) {
   }
 }
 
+// `openings` lets a connecting bridge pass through a rail: each entry is
+// { side, from, to } where `side` is -1/1 (which rail) and from/to are the
+// gap range along the rail's long axis (local coords). Both the rail mesh and
+// its collider are omitted across the gap so junctions stay walkable.
+function railSegments(start, end, openings) {
+  const gaps = openings
+    .map((o) => [Math.max(start, o.from), Math.min(end, o.to)])
+    .filter(([a, b]) => b > a)
+    .sort((a, b) => a[0] - b[0]);
+  const segments = [];
+  let cursor = start;
+  for (const [a, b] of gaps) {
+    if (a > cursor) segments.push([cursor, a]);
+    cursor = Math.max(cursor, b);
+  }
+  if (cursor < end) segments.push([cursor, end]);
+  return segments;
+}
+
 function addSafeBridge(game, group, {
   x,
   z,
@@ -138,6 +159,7 @@ function addSafeBridge(game, group, {
   depth,
   height,
   axis = "z",
+  openings = [],
 }) {
   const bridge = mesh(
     new THREE.BoxGeometry(width, 0.34, depth),
@@ -148,35 +170,32 @@ function addSafeBridge(game, group, {
   addGround(game, x - width / 2, x + width / 2, z - depth / 2, z + depth / 2, height);
 
   const railMat = mat(0xf0e5c3, { roughness: 0.68 });
-  if (axis === "z") {
-    for (const side of [-1, 1]) {
-      const rail = mesh(new THREE.BoxGeometry(0.1, 0.72, depth), railMat);
-      rail.position.set(x + side * (width / 2 - 0.1), height + 0.72, z);
-      group.add(rail);
-      addCollider(
-        game,
-        x + side * width / 2 - 0.18,
-        x + side * width / 2 + 0.18,
-        height,
-        height + 1.8,
-        z - depth / 2,
-        z + depth / 2
-      );
-    }
-  } else {
-    for (const side of [-1, 1]) {
-      const rail = mesh(new THREE.BoxGeometry(width, 0.72, 0.1), railMat);
-      rail.position.set(x, height + 0.72, z + side * (depth / 2 - 0.1));
-      group.add(rail);
-      addCollider(
-        game,
-        x - width / 2,
-        x + width / 2,
-        height,
-        height + 1.8,
-        z + side * depth / 2 - 0.18,
-        z + side * depth / 2 + 0.18
-      );
+  for (const side of [-1, 1]) {
+    const sideOpenings = openings.filter((o) => o.side === side);
+    if (axis === "z") {
+      const railX = x + side * (width / 2 - 0.1);
+      const colMinX = x + side * width / 2 - 0.18;
+      const colMaxX = x + side * width / 2 + 0.18;
+      for (const [s, e] of railSegments(z - depth / 2, z + depth / 2, sideOpenings)) {
+        const len = e - s;
+        if (len <= 0.05) continue;
+        const rail = mesh(new THREE.BoxGeometry(0.1, 0.72, len), railMat);
+        rail.position.set(railX, height + 0.72, (s + e) / 2);
+        group.add(rail);
+        addCollider(game, colMinX, colMaxX, height, height + 1.8, s, e);
+      }
+    } else {
+      const railZ = z + side * (depth / 2 - 0.1);
+      const colMinZ = z + side * depth / 2 - 0.18;
+      const colMaxZ = z + side * depth / 2 + 0.18;
+      for (const [s, e] of railSegments(x - width / 2, x + width / 2, sideOpenings)) {
+        const len = e - s;
+        if (len <= 0.05) continue;
+        const rail = mesh(new THREE.BoxGeometry(len, 0.72, 0.1), railMat);
+        rail.position.set((s + e) / 2, height + 0.72, railZ);
+        group.add(rail);
+        addCollider(game, s, e, height, height + 1.8, colMinZ, colMaxZ);
+      }
     }
   }
 }
@@ -237,14 +256,28 @@ export function buildLothlorienWorld(game, group) {
   addMallorn(game, group, 0, -2, 1.1, 4);
 
   // Broad white stairs and protected bridges connect three walkable levels.
+  // Cross-bridge rails are opened where the central bridge joins so the
+  // junctions stay walkable instead of being walled off.
   addStairs(game, group, -18, 8, 0, 4);
   addSafeBridge(game, group, { x: 0, z: 7, width: 6, depth: 20, height: 4, axis: "z" });
-  addSafeBridge(game, group, { x: -10, z: 18, width: 20, depth: 4, height: 4, axis: "x" });
-  addSafeBridge(game, group, { x: 10, z: 18, width: 20, depth: 4, height: 4, axis: "x" });
+  addSafeBridge(game, group, {
+    x: -10, z: 18, width: 20, depth: 4, height: 4, axis: "x",
+    openings: [{ side: -1, from: -3.4, to: 3.4 }],
+  });
+  addSafeBridge(game, group, {
+    x: 10, z: 18, width: 20, depth: 4, height: 4, axis: "x",
+    openings: [{ side: -1, from: -3.4, to: 3.4 }],
+  });
   addStairs(game, group, 18, 8, 4, 8);
   addSafeBridge(game, group, { x: 0, z: 38, width: 6, depth: 16, height: 8, axis: "z" });
-  addSafeBridge(game, group, { x: -9, z: 43, width: 18, depth: 4, height: 8, axis: "x" });
-  addSafeBridge(game, group, { x: 9, z: 44, width: 18, depth: 4, height: 8, axis: "x" });
+  addSafeBridge(game, group, {
+    x: -9, z: 43, width: 18, depth: 4, height: 8, axis: "x",
+    openings: [{ side: -1, from: -3.4, to: 3.4 }],
+  });
+  addSafeBridge(game, group, {
+    x: 9, z: 44, width: 18, depth: 4, height: 8, axis: "x",
+    openings: [{ side: -1, from: -3.4, to: 3.4 }],
+  });
 
   // Open flets and graceful tree houses.
   const houseMat = mat(0xeee4c9, { roughness: 0.76 });
