@@ -408,9 +408,71 @@ class Game {
     ui.levelSelectBtn.classList.remove("hidden");
 
     // Direct level launch for testing: index.html?level=moria
-    const requested = new URLSearchParams(window.location.search).get("level");
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("level");
     if (["shire", "rivendell", "moria", "lothlorien"].includes(requested)) {
-      this.selectLevel(requested, { force: true });
+      this.selectLevel(requested, { force: true }).then(() => {
+        if (params.has("walktest")) {
+          this.runWalkTest();
+        }
+      });
+    }
+  }
+
+  /**
+   * Debug traversal check (?level=lothlorien&walktest): marches a virtual
+   * player along the intended route with the real collision + ground code and
+   * logs exactly where movement gets stuck, if anywhere.
+   */
+  runWalkTest() {
+    if (this.levelId !== "lothlorien") {
+      console.log("WALKTEST: only implemented for lothlorien");
+      return;
+    }
+    const originZ = 520;
+    const route = [
+      [0, -47], [0, -30], [0, -18], [0, -12], [0, -6], [0, -2.5], // entry path + stairs 1
+      [0, 0], [0, 7], [0, 14], [0, 16.5],                          // central bridge
+      [0, 19], [0, 22], [0, 26], [0, 30], [0, 33.5],               // junction + stairs 2
+      [0, 36], [1.9, 39], [1.6, 42], [0, 44.2],                    // around the great mallorn to Galadriel
+      [-3.8, 41.5],                                                 // fountain
+      [-9, 43], [-16, 43],                                          // west cross bridge + treehouse
+    ];
+    const pos = new THREE.Vector3(0, 0, originZ - 47);
+    pos.y = this.getGroundHeight(pos.x, pos.z);
+    const dummyVel = { x: 0, z: 0 };
+    let failure = null;
+    for (const [lx, lz] of route) {
+      const tx = lx;
+      const tz = originZ + lz;
+      let guard = 0;
+      let lastDist = Infinity;
+      let stuckCount = 0;
+      while (guard++ < 5000) {
+        const dx = tx - pos.x;
+        const dz = tz - pos.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 0.12) break;
+        const step = Math.min(0.035, dist);
+        moveWithCollisions(pos, dummyVel, this.colliders, (dx / dist) * step, (dz / dist) * step);
+        pos.y = this.getGroundHeight(pos.x, pos.z);
+        if (dist >= lastDist - 1e-6) {
+          stuckCount += 1;
+          if (stuckCount > 60) break;
+        } else {
+          stuckCount = 0;
+        }
+        lastDist = dist;
+      }
+      if (Math.hypot(tx - pos.x, tz - pos.z) > 0.5) {
+        failure = { target: [lx, lz], at: [pos.x.toFixed(2), (pos.z - originZ).toFixed(2), pos.y.toFixed(2)] };
+        break;
+      }
+    }
+    if (failure) {
+      console.log(`WALKTEST BLOCKED heading to (${failure.target}) — stuck at x=${failure.at[0]} z=${failure.at[1]} y=${failure.at[2]}`);
+    } else {
+      console.log("WALKTEST PASS: full route traversable");
     }
   }
 

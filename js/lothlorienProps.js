@@ -274,7 +274,12 @@ export function buildLothlorienWorld(game, group) {
     openings: [{ side: -1, from: -3.8, to: 3.8 }, { side: 1, from: -3.8, to: 3.8 }],
   });
   addStairs(game, group, 18, 8, 4, 8);
-  addSafeBridge(game, group, { x: 0, z: 38, width: 6, depth: 16, height: 8, axis: "z" });
+  // Rails stay closed over the exposed gap (z 30–34) but open onto the broad
+  // top talan so the fountain and mirror are reachable.
+  addSafeBridge(game, group, {
+    x: 0, z: 38, width: 6, depth: 16, height: 8, axis: "z",
+    openings: [{ side: -1, from: 34, to: 46 }, { side: 1, from: 34, to: 46 }],
+  });
   addSafeBridge(game, group, {
     x: -9, z: 43, width: 18, depth: 4, height: 8, axis: "x",
     openings: [{ side: -1, from: -3.8, to: 3.8 }, { side: 1, from: -3.8, to: 3.8 }],
