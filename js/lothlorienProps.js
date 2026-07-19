@@ -255,30 +255,33 @@ export function buildLothlorienWorld(game, group) {
   addMallorn(game, group, -18, 43, 1.05, 8);
   addMallorn(game, group, 18, 44, 1.05, 8);
   addMallorn(game, group, 0, 39, 1.35, 8);
-  addMallorn(game, group, 0, -2, 1.1, 4);
+  // Off to the side of the stair-top junction so the main path stays clear
+  addMallorn(game, group, 8, -2, 1.1, 4);
 
   // Broad white stairs and protected bridges connect three walkable levels.
   // Cross-bridge rails are opened where the central bridge joins so the
   // junctions stay walkable instead of being walled off.
   addStairs(game, group, -18, 8, 0, 4);
   addSafeBridge(game, group, { x: 0, z: 7, width: 6, depth: 20, height: 4, axis: "z" });
+  // Cross bridges need rail gaps on BOTH sides where the main path crosses:
+  // the near side meets the central bridge, the far side meets the next stairs.
   addSafeBridge(game, group, {
     x: -10, z: 18, width: 20, depth: 4, height: 4, axis: "x",
-    openings: [{ side: -1, from: -3.4, to: 3.4 }],
+    openings: [{ side: -1, from: -3.8, to: 3.8 }, { side: 1, from: -3.8, to: 3.8 }],
   });
   addSafeBridge(game, group, {
     x: 10, z: 18, width: 20, depth: 4, height: 4, axis: "x",
-    openings: [{ side: -1, from: -3.4, to: 3.4 }],
+    openings: [{ side: -1, from: -3.8, to: 3.8 }, { side: 1, from: -3.8, to: 3.8 }],
   });
   addStairs(game, group, 18, 8, 4, 8);
   addSafeBridge(game, group, { x: 0, z: 38, width: 6, depth: 16, height: 8, axis: "z" });
   addSafeBridge(game, group, {
     x: -9, z: 43, width: 18, depth: 4, height: 8, axis: "x",
-    openings: [{ side: -1, from: -3.4, to: 3.4 }],
+    openings: [{ side: -1, from: -3.8, to: 3.8 }, { side: 1, from: -3.8, to: 3.8 }],
   });
   addSafeBridge(game, group, {
     x: 9, z: 44, width: 18, depth: 4, height: 8, axis: "x",
-    openings: [{ side: -1, from: -3.4, to: 3.4 }],
+    openings: [{ side: -1, from: -3.8, to: 3.8 }, { side: 1, from: -3.8, to: 3.8 }],
   });
 
   // Open flets and graceful tree houses.
