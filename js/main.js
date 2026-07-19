@@ -106,7 +106,7 @@ const ui = {
   levelRivendellBtn: document.getElementById("level-rivendell-btn"),
   levelMoriaBtn: document.getElementById("level-moria-btn"),
   levelLothlorienBtn: document.getElementById("level-lothlorien-btn"),
-  quickMoriaBtn: document.getElementById("quick-moria-btn"),
+  levelSelectBtn: document.getElementById("level-select-btn"),
   levelSubtitle: document.getElementById("level-subtitle"),
   loading: document.getElementById("loading"),
   loadingBar: document.getElementById("loading-bar"),
@@ -387,7 +387,7 @@ class Game {
     this.state = "menu";
     ui.loading.classList.add("hidden");
     ui.startBtn.classList.remove("hidden");
-    ui.quickMoriaBtn.classList.remove("hidden");
+    ui.levelSelectBtn.classList.remove("hidden");
   }
 
   createFrodo() {
@@ -917,7 +917,15 @@ class Game {
     ui.levelRivendellBtn.addEventListener("click", () => this.selectLevel("rivendell"));
     ui.levelMoriaBtn.addEventListener("click", () => this.selectLevel("moria"));
     ui.levelLothlorienBtn.addEventListener("click", () => this.selectLevel("lothlorien"));
-    ui.quickMoriaBtn.addEventListener("click", () => this.selectLevel("moria"));
+    ui.levelSelectBtn.addEventListener("click", () => this.openLevelSelectFromMenu());
+  }
+
+  openLevelSelectFromMenu() {
+    this.sfx.init();
+    this.sfx.resume();
+    ui.startBtn.classList.add("hidden");
+    ui.levelSelectBtn.classList.add("hidden");
+    this.showLevelSelect();
   }
 
   focusGame() {
@@ -932,7 +940,7 @@ class Game {
     this.focusGame();
     this.input.requestPointerLock(this.canvas);
     ui.startBtn.classList.add("hidden");
-    ui.quickMoriaBtn.classList.add("hidden");
+    ui.levelSelectBtn.classList.add("hidden");
     ui.controlsHelp.classList.remove("hidden");
     ui.resetBtn.classList.remove("hidden");
     ui.actionsMenu.classList.remove("hidden");
@@ -2020,8 +2028,10 @@ class Game {
       showMessage("Complete the Shire quest first!", 2000);
       return;
     }
+    this.sfx.init();
+    this.sfx.resume();
     ui.startBtn.classList.add("hidden");
-    ui.quickMoriaBtn.classList.add("hidden");
+    ui.levelSelectBtn.classList.add("hidden");
     ui.levelSelect.classList.add("hidden");
     ui.fade.classList.remove("hidden");
     ui.fade.classList.add("show");

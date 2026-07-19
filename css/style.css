@@ -40,7 +40,7 @@ body {
 #controls-help,
 #message,
 #start-btn,
-#quick-moria-btn,
+#level-select-btn,
 #reset-btn,
 #actions-menu,
 #win-screen,
@@ -321,7 +321,7 @@ header h1 {
 }
 
 #start-btn,
-#quick-moria-btn,
+#level-select-btn,
 #restart-btn {
   position: absolute;
   left: 50%;
@@ -339,12 +339,12 @@ header h1 {
 }
 
 #start-btn:hover,
-#quick-moria-btn:hover,
+#level-select-btn:hover,
 #restart-btn:hover {
   filter: brightness(1.05);
 }
 
-#quick-moria-btn {
+#level-select-btn {
   top: 68%;
   background: linear-gradient(180deg, #5f6368, #2f3337);
   border: 2px solid #a89b84;
