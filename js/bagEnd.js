@@ -493,8 +493,7 @@ export function buildBagEnd(game, tex) {
     rightExtent: 2.1,
   });
 
-  // Bedroom walls
-  addWall(game, group, 0.35, 3.2, 9, -6.0, 0, -25.5, plaster.clone());
+  // Bedroom walls (left wall uses round doorway into bathroom)
   addWall(game, group, 0.35, 3.2, 9, 6.0, 0, -25.5, plaster.clone());
   addWall(game, group, 12.2, 3.2, 0.35, 0, 0, -29.9, plaster.clone());
   // Fill beside bedroom doorway from hallway corridor width to bedroom width
@@ -644,6 +643,42 @@ export function buildBagEnd(game, tex) {
   rug.position.set(0.2, 0.02, -4.8);
   group.add(rug);
 
+  // Couch facing the fireplace
+  const couch = new THREE.Group();
+  const couchBase = ms(new THREE.BoxGeometry(2.6, 0.35, 1.0), woodMat(tex, 2, 1));
+  couchBase.position.set(0, 0.28, 0);
+  const seatPad = ms(
+    new THREE.BoxGeometry(2.45, 0.22, 0.85),
+    new THREE.MeshStandardMaterial({ color: 0x6b4f3a, roughness: 0.92 })
+  );
+  seatPad.position.set(0, 0.52, 0.05);
+  const backPad = ms(
+    new THREE.BoxGeometry(2.45, 0.85, 0.22),
+    new THREE.MeshStandardMaterial({ color: 0x7a5a42, roughness: 0.9 })
+  );
+  backPad.position.set(0, 0.85, -0.4);
+  const armL = ms(new THREE.BoxGeometry(0.22, 0.45, 1.0), woodMat(tex, 1, 1));
+  armL.position.set(-1.2, 0.55, 0);
+  const armR = armL.clone();
+  armR.position.x = 1.2;
+  couch.add(couchBase, seatPad, backPad, armL, armR);
+  couch.position.set(-1.6, 0, -6.6);
+  couch.rotation.y = Math.PI / 2;
+  group.add(couch);
+  game.colliders.push(
+    Object.assign(
+      createCollider(
+        BAG_END_ORIGIN.x - 2.3,
+        BAG_END_ORIGIN.x - 0.9,
+        0,
+        1.1,
+        BAG_END_ORIGIN.z - 8.0,
+        BAG_END_ORIGIN.z - 5.2
+      ),
+      { zone: "inside", level: "shire" }
+    )
+  );
+
   // Parlor shelves
   addWallShelfRun(game, group, tex, beamMat, {
     x: 6.4,
@@ -702,28 +737,33 @@ export function buildBagEnd(game, tex) {
   pedestal.position.set(-6.8, 0.12, -16.2);
   group.add(pedestal);
 
-  const acorn = new THREE.Group();
-  const body = ms(
-    new THREE.SphereGeometry(0.13, 14, 14),
+  // The One Ring
+  const ringMesh = new THREE.Group();
+  const gold = new THREE.MeshStandardMaterial({
+    color: 0xd4a017,
+    emissive: 0x664400,
+    emissiveIntensity: 0.65,
+    metalness: 0.95,
+    roughness: 0.22,
+  });
+  const band = ms(new THREE.TorusGeometry(0.13, 0.032, 16, 36), gold);
+  band.rotation.x = Math.PI / 2;
+  const inner = ms(
+    new THREE.TorusGeometry(0.1, 0.012, 12, 28),
     new THREE.MeshStandardMaterial({
-      color: 0xd4a017,
-      emissive: 0x664400,
-      emissiveIntensity: 0.55,
-      metalness: 0.4,
-      roughness: 0.35,
+      color: 0xffe082,
+      emissive: 0xffc107,
+      emissiveIntensity: 0.4,
+      metalness: 0.9,
+      roughness: 0.2,
     })
   );
-  body.scale.set(1, 1.25, 1);
-  const cap = ms(
-    new THREE.SphereGeometry(0.14, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.45),
-    new THREE.MeshStandardMaterial({ color: 0x6d4c41, roughness: 0.8 })
-  );
-  cap.position.y = 0.09;
-  acorn.add(body, cap);
-  acorn.position.set(-6.8, 0.42, -16.2);
-  acorn.add(new THREE.PointLight(0xffd54f, 0.95, 4));
-  group.add(acorn);
-  game.acorn = { mesh: acorn, collected: false, spin: 0, zone: "inside" };
+  inner.rotation.x = Math.PI / 2;
+  ringMesh.add(band, inner);
+  ringMesh.position.set(-6.8, 0.42, -16.2);
+  ringMesh.add(new THREE.PointLight(0xffd54f, 1.05, 4.5));
+  group.add(ringMesh);
+  game.ring = { mesh: ringMesh, collected: false, spin: 0, zone: "inside" };
 
   // --- Study ---
   const desk = ms(new THREE.BoxGeometry(2.4, 0.12, 1.1), woodMat(tex, 2, 1));
@@ -830,6 +870,112 @@ export function buildBagEnd(game, tex) {
   nightstand.position.set(1.8, 0.3, -27.2);
   group.add(nightstand);
   game.colliders.push(Object.assign(colliderFromMesh(nightstand), { zone: "inside" }));
+
+  // Kid-friendly bathroom off the bedroom (round open doorway)
+  addRoundDoorway(game, group, plaster, frameWood, {
+    x: -6.0,
+    z: -25.5,
+    facing: "x",
+    radius: 1.0,
+    leftExtent: 4.5,
+    rightExtent: 4.5,
+  });
+  addFloorPatch(game, group, wood, -9.2, -25.5, 6.2, 7.5);
+  addCeiling(group, plaster, beamMat, -9.2, -25.5, 6.4, 7.7);
+  addWall(game, group, 0.35, 3.2, 7.5, -12.2, 0, -25.5, plaster.clone());
+  addWall(game, group, 6.2, 3.2, 0.35, -9.2, 0, -29.1, plaster.clone());
+  addWall(game, group, 6.2, 3.2, 0.35, -9.2, 0, -21.9, plaster.clone());
+
+  // Wash basin + pitcher
+  const vanity = ms(new THREE.BoxGeometry(1.6, 0.7, 0.55), woodMat(tex, 2, 1));
+  vanity.position.set(-10.5, 0.4, -23.2);
+  group.add(vanity);
+  game.colliders.push(Object.assign(colliderFromMesh(vanity), { zone: "inside" }));
+  const basin = ms(
+    new THREE.CylinderGeometry(0.28, 0.22, 0.16, 16),
+    new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.35 })
+  );
+  basin.position.set(-10.5, 0.85, -23.2);
+  group.add(basin);
+  const pitcher = ms(
+    new THREE.CylinderGeometry(0.08, 0.12, 0.28, 12),
+    new THREE.MeshStandardMaterial({ color: 0x90caf9, roughness: 0.4 })
+  );
+  pitcher.position.set(-9.85, 0.95, -23.2);
+  group.add(pitcher);
+
+  // Mirror
+  const mirrorFrame = ms(new THREE.BoxGeometry(0.7, 0.9, 0.06), woodMat(tex, 1, 1));
+  mirrorFrame.position.set(-10.5, 1.7, -22.95);
+  const mirrorGlass = ms(
+    new THREE.PlaneGeometry(0.55, 0.75),
+    new THREE.MeshStandardMaterial({
+      color: 0xb3e5fc,
+      metalness: 0.6,
+      roughness: 0.15,
+      envMapIntensity: 1.4,
+    }),
+    false,
+    false
+  );
+  mirrorGlass.position.set(-10.5, 1.7, -22.9);
+  group.add(mirrorFrame, mirrorGlass);
+
+  // Clawfoot tub
+  const tub = ms(
+    new THREE.CapsuleGeometry(0.45, 1.1, 6, 12),
+    new THREE.MeshStandardMaterial({ color: 0xfff8e7, roughness: 0.4 })
+  );
+  tub.rotation.z = Math.PI / 2;
+  tub.position.set(-9.0, 0.45, -27.2);
+  group.add(tub);
+  game.colliders.push(
+    Object.assign(
+      createCollider(
+        BAG_END_ORIGIN.x - 10.2,
+        BAG_END_ORIGIN.x - 7.8,
+        0,
+        0.9,
+        BAG_END_ORIGIN.z - 28.0,
+        BAG_END_ORIGIN.z - 26.4
+      ),
+      { zone: "inside" }
+    )
+  );
+  [[-0.7, -0.35], [0.7, -0.35], [-0.7, 0.35], [0.7, 0.35]].forEach(([dx, dz]) => {
+    const foot = ms(
+      new THREE.SphereGeometry(0.08, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.7, roughness: 0.35 })
+    );
+    foot.position.set(-9.0 + dx, 0.08, -27.2 + dz);
+    group.add(foot);
+  });
+
+  // Towels + soap shelf
+  const towelBar = ms(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 8), beamMat.clone());
+  towelBar.rotation.z = Math.PI / 2;
+  towelBar.position.set(-11.5, 1.4, -26.0);
+  group.add(towelBar);
+  const towel = ms(
+    new THREE.BoxGeometry(0.55, 0.7, 0.08),
+    new THREE.MeshStandardMaterial({ color: 0x81c784, roughness: 0.95 })
+  );
+  towel.position.set(-11.5, 1.05, -26.0);
+  group.add(towel);
+  const soapShelf = ms(new THREE.BoxGeometry(0.7, 0.08, 0.28), woodMat(tex, 1, 1));
+  soapShelf.position.set(-11.4, 1.1, -23.5);
+  group.add(soapShelf);
+  const soap = ms(
+    new THREE.BoxGeometry(0.14, 0.08, 0.1),
+    new THREE.MeshStandardMaterial({ color: 0xf8bbd0, roughness: 0.7 })
+  );
+  soap.position.set(-11.4, 1.18, -23.5);
+  group.add(soap);
+
+  const bathLight = new THREE.PointLight(0xffe0b2, 0.75, 8, 2);
+  bathLight.position.set(-9.2, 2.4, -25.5);
+  group.add(bathLight);
+  addRoundWindow(group, tex, glassMat, -12.05, 1.65, -25.5, "x");
 
   // Lights
   [

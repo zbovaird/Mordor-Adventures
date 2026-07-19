@@ -4,9 +4,17 @@ import { Input } from "./input.js";
 import { AssetLibrary } from "./assets.js";
 import { createRealisticFrodo } from "./realisticHobbit.js";
 import { createRealisticOrc } from "./realisticOrc.js";
-import { loadHoleTextures, buildDetailedHobbitHole } from "./detailedHole.js";
-import { loadNatureTextures, decorateRealisticWorld } from "./natureProps.js";
-import { buildBagEnd, applyZone, toggleFireplace, applyFireplaceState } from "./bagEnd.js";
+import { loadHoleTextures } from "./detailedHole.js";
+import { loadNatureTextures } from "./natureProps.js";
+import { applyZone, toggleFireplace, applyFireplaceState } from "./bagEnd.js";
+import { buildShireLevel } from "./levels/shire.js";
+import {
+  buildRivendellLevel,
+  resetRivendellQuest,
+  animateRivendellWater,
+} from "./levels/rivendell.js";
+import { nearestNpc, updateNpcIdle, TALK_RANGE } from "./npcs.js";
+import { loadProgress, saveProgress, markLevel1Complete } from "./progress.js";
 import {
   createEnvMap,
   createSkyDome,
@@ -34,6 +42,8 @@ const ATTACK_DURATION = 0.52;
 const HIT_FRAME = 0.24;
 const FIREPLACE_RANGE = 2.6;
 const BED_RANGE = 2.4;
+const RING_INVIS_DURATION = 10;
+const RING_COOLDOWN = 5;
 
 function easeOutCubic(t) {
   return 1 - (1 - t) ** 3;
@@ -52,11 +62,20 @@ const ui = {
   message: document.getElementById("message"),
   startBtn: document.getElementById("start-btn"),
   winScreen: document.getElementById("win-screen"),
+  winTitle: document.getElementById("win-title"),
+  winText: document.getElementById("win-text"),
   restartBtn: document.getElementById("restart-btn"),
   resetBtn: document.getElementById("reset-btn"),
   controlsHelp: document.getElementById("controls-help"),
-  fireBtn: document.getElementById("fire-btn"),
-  bedBtn: document.getElementById("bed-btn"),
+  actionsMenu: document.getElementById("actions-menu"),
+  actionBtn: document.getElementById("action-btn"),
+  actionLabel: document.getElementById("action-label"),
+  ringBtn: document.getElementById("ring-btn"),
+  ringLabel: document.getElementById("ring-label"),
+  levelSelect: document.getElementById("level-select"),
+  levelShireBtn: document.getElementById("level-shire-btn"),
+  levelRivendellBtn: document.getElementById("level-rivendell-btn"),
+  levelSubtitle: document.getElementById("level-subtitle"),
   loading: document.getElementById("loading"),
   loadingBar: document.getElementById("loading-bar"),
   loadingPct: document.getElementById("loading-pct"),
@@ -198,8 +217,16 @@ class Game {
     this.assets = new AssetLibrary();
     this.clock = new THREE.Clock();
     this.state = "loading";
-    this.hasAcorn = false;
+    this.hasRing = false;
     this.won = false;
+    this.levelId = "shire";
+    this.ringInvisible = false;
+    this.ringInvisTimer = 0;
+    this.ringCooldownTimer = 0;
+    this.progress = loadProgress();
+    this.npcs = [];
+    this.rivendellBuilt = false;
+    this.gameTime = 0;
     this.footstepTimer = 0;
     this.attackCooldown = 0;
     this.attackTimer = 0;
@@ -216,7 +243,7 @@ class Game {
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0xc5dcc0, 0.014);
 
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 140);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 280);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -240,7 +267,7 @@ class Game {
     this.groundHeights = [];
     this.decorations = [];
     this.orc = null;
-    this.acorn = null;
+    this.ring = null;
     this.exitGate = null;
     this.location = "outside";
     this.zoneCooldown = 0;
@@ -303,9 +330,9 @@ class Game {
     this.player = this.createFrodo();
     this.scene.add(this.player.root);
     this.buildLevel();
-    decorateRealisticWorld(this, this.natureTextures);
     ui.loadingBar.style.width = "100%";
     this.updateCamera(1 / 60);
+    this.refreshLevelSelectUi();
 
     this.state = "menu";
     ui.loading.classList.add("hidden");
@@ -583,27 +610,7 @@ class Game {
   }
 
   buildLevel() {
-    this.addGround(52, 52, 0, 8, 0x74b856);
-    this.addHill(5, 0.9, 3.2, -11, 5);
-    this.addHill(3.5, 0.6, 2.8, 10, 7);
-    this.addHill(2.5, 0.4, 2, -6, 12);
-    this.addPond(14, 16);
-    this.addLampPost(-3, 10);
-    this.addLampPost(4, 2);
-    this.addMailbox(-2, 6);
-    this.addBench(6, 10, Math.PI / 2);
-    this.addSign(-5, 13, 0.4);
-    if (this.holeTextures) {
-      buildDetailedHobbitHole(this, this.holeTextures);
-      buildBagEnd(this, this.holeTextures);
-      applyZone(this, "outside");
-    } else {
-      this.buildHobbitHole();
-      this.spawnAcorn();
-    }
-    this.buildExitGate();
-    this.spawnOrc();
-    this.addClouds();
+    buildShireLevel(this);
   }
 
   addClouds() {
@@ -767,25 +774,23 @@ class Game {
     this.exitGate = { bounds: colliderFromMesh(trigger) };
   }
 
-  spawnAcorn() {
-    const acorn = new THREE.Group();
-    const body = createBox(0.22, 0.28, 0.22, 0xd4a017, 0x664400);
-    body.position.y = 0.18;
-    const cap = createBox(0.28, 0.14, 0.28, 0x7a4f12);
-    cap.position.y = 0.38;
-    acorn.add(body, cap);
-    acorn.position.set(1.8, 0.05, -15.2);
-    this.scene.add(acorn);
-
+  spawnRing() {
+    const ringMesh = new THREE.Group();
+    const band = mesh(
+      new THREE.TorusGeometry(0.13, 0.032, 16, 36),
+      mat(0xd4a017, { emissive: 0x664400, metalness: 0.95, roughness: 0.22, envMapIntensity: 1.4 })
+    );
+    band.rotation.x = Math.PI / 2;
+    ringMesh.add(band);
+    ringMesh.position.set(1.8, 0.45, -15.2);
+    this.scene.add(ringMesh);
     const glow = new THREE.PointLight(0xffd54f, 1.0, 5);
-    glow.position.set(0, 0.55, 0);
-    acorn.add(glow);
-
+    glow.position.set(0, 0.1, 0);
+    ringMesh.add(glow);
     const pedestal = createCylinder(0.35, 0.45, 0.15, 12, 0x8d6e63);
     pedestal.position.set(1.8, 0.06, -15.2);
     this.scene.add(pedestal);
-
-    this.acorn = { mesh: acorn, collected: false, spin: 0 };
+    this.ring = { mesh: ringMesh, collected: false, spin: 0, level: "shire" };
   }
 
   spawnOrc() {
@@ -847,16 +852,18 @@ class Game {
     });
 
     ui.startBtn.addEventListener("click", () => this.start());
-    ui.restartBtn.addEventListener("click", () => this.reset());
     ui.resetBtn.addEventListener("click", () => this.reset());
-    ui.fireBtn.addEventListener("click", (event) => {
+    ui.actionBtn.addEventListener("click", (event) => {
       event.stopPropagation();
-      this.toggleBagEndFire();
+      this.tryInteract();
     });
-    ui.bedBtn.addEventListener("click", (event) => {
+    ui.ringBtn.addEventListener("click", (event) => {
       event.stopPropagation();
-      this.toggleBed();
+      this.tryUseRing();
     });
+    ui.restartBtn.addEventListener("click", () => this.onWinContinue());
+    ui.levelShireBtn.addEventListener("click", () => this.selectLevel("shire"));
+    ui.levelRivendellBtn.addEventListener("click", () => this.selectLevel("rivendell"));
   }
 
   focusGame() {
@@ -873,13 +880,33 @@ class Game {
     ui.startBtn.classList.add("hidden");
     ui.controlsHelp.classList.remove("hidden");
     ui.resetBtn.classList.remove("hidden");
-    showMessage("Welcome, Frodo! Click to look with the mouse.", 2600);
+    ui.actionsMenu.classList.remove("hidden");
+    this.syncRingButton();
+    showMessage("Welcome, Frodo! Find the One Ring in Bag End.", 2600);
   }
 
   reset() {
-    this.hasAcorn = false;
+    this.hasRing = false;
     this.won = false;
+    this.clearInvisibility(true);
+    this.ringCooldownTimer = 0;
     this.state = "playing";
+    if (this.levelId === "rivendell") {
+      resetRivendellQuest(this);
+      ui.objective.textContent = "Enter the hall, approach Elrond, then press E.";
+      ui.status.textContent = "Fellowship: speak with Elrond first";
+      this.player.root.position.copy(this.rivendellSpawn || this.player.root.position);
+      this.input.enable();
+      this.focusGame();
+      this.input.requestPointerLock(this.canvas);
+      ui.winScreen.classList.add("hidden");
+      ui.levelSelect.classList.add("hidden");
+      ui.controlsHelp.classList.remove("hidden");
+      ui.resetBtn.classList.remove("hidden");
+      showMessage("Rivendell quest reset.", 1600);
+      this.snapCamera();
+      return;
+    }
     this.input.enable();
     this.focusGame();
     this.footstepTimer = 0;
@@ -911,15 +938,15 @@ class Game {
     this.hitSparks.forEach((spark) => this.scene.remove(spark.mesh));
     this.hitSparks = [];
 
-    if (this.acorn) {
-      this.acorn.collected = false;
-      this.acorn.spin = 0;
-      this.acorn.mesh.visible = true;
-      this.acorn.mesh.rotation.y = 0;
-      if (this.acorn.zone === "inside") {
-        this.acorn.mesh.position.set(-6.8, 0.42, -16.2);
+    if (this.ring) {
+      this.ring.collected = false;
+      this.ring.spin = 0;
+      this.ring.mesh.visible = true;
+      this.ring.mesh.rotation.y = 0;
+      if (this.ring.zone === "inside") {
+        this.ring.mesh.position.set(-6.8, 0.42, -16.2);
       } else {
-        this.acorn.mesh.position.set(1.8, 0.05, -15.2);
+        this.ring.mesh.position.set(1.8, 0.05, -15.2);
       }
     }
 
@@ -938,8 +965,6 @@ class Game {
       this.fireplace.lit = true;
       applyFireplaceState(this.fireplace);
     }
-    ui.fireBtn.classList.add("hidden");
-    ui.bedBtn.classList.add("hidden");
     this.syncFireButtonLabel();
     this.syncBedButtonLabel();
     if (this.bed) {
@@ -963,8 +988,8 @@ class Game {
 
     ui.message.classList.add("hidden");
     window.clearTimeout(messageTimer);
-    ui.status.textContent = "Acorn: not found";
-    ui.objective.textContent = "Open Bag End, find the golden acorn, then reach the exit gate.";
+    ui.status.textContent = "Ring: not found";
+    ui.objective.textContent = "Open Bag End, find the One Ring, then reach the exit gate.";
     ui.winScreen.classList.add("hidden");
     ui.startBtn.classList.add("hidden");
     ui.controlsHelp.classList.remove("hidden");
@@ -988,6 +1013,8 @@ class Game {
     let height = 0;
     let found = false;
     for (const patch of this.groundHeights) {
+      const lvl = patch.level || "shire";
+      if (lvl !== this.levelId) continue;
       if (patch.zone && patch.zone !== this.location) {
         continue;
       }
@@ -996,7 +1023,7 @@ class Game {
         found = true;
       }
     }
-    return found ? height : 0;
+    return found ? height : (this.levelId === "rivendell" ? 0 : 0);
   }
 
   overlapsTrigger(trigger) {
@@ -1045,9 +1072,9 @@ class Game {
     this.cameraPitch = 0.12;
     this.zoneCooldown = 1.2;
     this.snapCamera();
-    ui.objective.textContent = this.hasAcorn
-      ? "Bring the acorn outside to the exit gate."
-      : "Explore Bag End's rooms and find the golden acorn in the kitchen.";
+    ui.objective.textContent = this.hasRing
+      ? "Bring the One Ring outside to the exit gate."
+      : "Explore Bag End's rooms and find the One Ring in the kitchen.";
     showMessage("Welcome to Bag End! Wander the round doorways.", 2200);
     await this.fadeFromBlack();
     this.transitioning = false;
@@ -1067,9 +1094,9 @@ class Game {
     this.cameraPitch = 0.32;
     this.zoneCooldown = 1.2;
     this.snapCamera();
-    ui.objective.textContent = this.hasAcorn
-      ? "Bring the acorn to the golden exit gate."
-      : "Find the golden acorn inside Bag End.";
+    ui.objective.textContent = this.hasRing
+      ? "Bring the One Ring to the exit gate."
+      : "Find the One Ring inside Bag End.";
     showMessage("Back in the Shire.", 1800);
     await this.fadeFromBlack();
     this.transitioning = false;
@@ -1144,17 +1171,11 @@ class Game {
   }
 
   syncFireButtonLabel() {
-    if (!ui.fireBtn || !this.fireplace) {
-      return;
-    }
-    ui.fireBtn.textContent = this.fireplace.lit ? "Fire: On" : "Fire: Off";
+    this.updateActionUi();
   }
 
   syncBedButtonLabel() {
-    if (!ui.bedBtn) {
-      return;
-    }
-    ui.bedBtn.textContent = this.lyingDown ? "Get Up" : "Lie Down";
+    this.updateActionUi();
   }
 
   toggleBagEndFire() {
@@ -1187,7 +1208,7 @@ class Game {
     this.cameraPitch = 0.18;
     this.snapCamera();
     this.syncBedButtonLabel();
-    showMessage("Sweet dreams… press Get Up when ready.", 2200);
+    showMessage("Sweet dreams… press E when you are ready to get up.", 2200);
   }
 
   getUpFromBed(silent = false) {
@@ -1232,53 +1253,79 @@ class Game {
   }
 
   tryInteract() {
-    if (this.lyingDown) {
-      this.getUpFromBed();
-      return;
-    }
-
-    if (this.nearBed()) {
-      this.lieDownInBed();
-      return;
-    }
-
-    if (this.nearFireplace()) {
-      this.toggleBagEndFire();
-      return;
-    }
-
-    const playerPos = this.player.root.position;
-
-    let nearest = null;
-    let nearestDist = INTERACT_RANGE;
-
-    for (const door of this.doors) {
-      if (door.open) {
-        continue;
-      }
-      const dist = playerPos.distanceTo(door.interactPoint);
-      if (dist < nearestDist) {
-        nearest = door;
-        nearestDist = dist;
-      }
-    }
-
-    if (!nearest) {
+    const action = this.getContextAction();
+    if (!action) {
       showMessage("Nothing to use nearby.", 1200);
       return;
     }
 
-    nearest.open = true;
-    nearest.targetOpen = 1;
-    nearest.collider.active = false;
-    this.sfx.door();
-    if (nearest.role === "entrance") {
-      showMessage("Bag End is open — walk inside!", 2000);
-    } else if (nearest.role === "exit") {
-      showMessage("Door open — walk out to the Shire!", 2000);
-    } else {
-      showMessage(`${nearest.label} opened!`, 1500);
+    if (action.type === "get-up") {
+      this.getUpFromBed();
+    } else if (action.type === "bed") {
+      this.lieDownInBed();
+    } else if (action.type === "fire") {
+      this.toggleBagEndFire();
+    } else if (action.type === "talk") {
+      this.tryTalk();
+    } else if (action.type === "door") {
+      const door = action.door;
+      door.open = true;
+      door.targetOpen = 1;
+      door.collider.active = false;
+      this.sfx.door();
+      if (door.role === "entrance") {
+        showMessage("Bag End is open — walk inside!", 2000);
+      } else if (door.role === "exit") {
+        showMessage("Door open — walk out to the Shire!", 2000);
+      } else {
+        showMessage(`${door.label} opened!`, 1500);
+      }
     }
+    this.updateActionUi();
+  }
+
+  getContextAction() {
+    if (!this.player) return null;
+    if (this.lyingDown) {
+      return { type: "get-up", label: "Get up from bed" };
+    }
+    if (this.levelId === "rivendell") {
+      const npc = nearestNpc(this.npcs || [], this.player.root.position, TALK_RANGE);
+      return npc ? { type: "talk", label: `Speak with ${npc.name}`, npc } : null;
+    }
+    if (this.nearBed()) {
+      return { type: "bed", label: "Lie down in bed" };
+    }
+    if (this.nearFireplace()) {
+      return {
+        type: "fire",
+        label: this.fireplace?.lit ? "Turn fireplace off" : "Turn fireplace on",
+      };
+    }
+
+    let nearestDoor = null;
+    let nearestDist = INTERACT_RANGE;
+    for (const door of this.doors) {
+      if (door.open) continue;
+      const dist = this.player.root.position.distanceTo(door.interactPoint);
+      if (dist < nearestDist) {
+        nearestDoor = door;
+        nearestDist = dist;
+      }
+    }
+    return nearestDoor ? { type: "door", label: "Open door", door: nearestDoor } : null;
+  }
+
+  updateActionUi() {
+    if (!ui.actionsMenu || !ui.actionBtn || !ui.actionLabel) return;
+    if (this.state !== "playing") {
+      ui.actionsMenu.classList.add("hidden");
+      return;
+    }
+    ui.actionsMenu.classList.remove("hidden");
+    const action = this.getContextAction();
+    ui.actionBtn.disabled = !action;
+    ui.actionLabel.textContent = action?.label || "Nothing nearby";
   }
 
   tryAttack() {
@@ -1405,13 +1452,6 @@ class Game {
     if (!fire) {
       return;
     }
-    const near = this.nearFireplace();
-    if (this.location === "inside" && near) {
-      ui.fireBtn.classList.remove("hidden");
-      this.syncFireButtonLabel();
-    } else {
-      ui.fireBtn.classList.add("hidden");
-    }
     if (!fire.lit || this.location !== "inside") {
       return;
     }
@@ -1429,21 +1469,12 @@ class Game {
   }
 
   updateBedUi() {
-    if (!this.bed) {
-      ui.bedBtn.classList.add("hidden");
-      return;
-    }
-    if (this.location === "inside" && this.nearBed()) {
-      ui.bedBtn.classList.remove("hidden");
-      this.syncBedButtonLabel();
-    } else {
-      ui.bedBtn.classList.add("hidden");
-    }
+    this.updateActionUi();
   }
 
   updateOrc(delta) {
     const orc = this.orc;
-    if (!orc) {
+    if (!orc || this.levelId !== "shire" || this.ringInvisible) {
       return;
     }
 
@@ -1647,6 +1678,10 @@ class Game {
       this.tryInteract();
     }
 
+    if (this.input.wasPressed("KeyQ")) {
+      this.tryUseRing();
+    }
+
     if (this.input.wasPressed("KeyF") || this.input.wasAttackClicked()) {
       this.tryAttack();
     }
@@ -1660,28 +1695,29 @@ class Game {
     }
   }
 
-  updateAcorn(delta) {
-    if (!this.acorn || this.acorn.collected) {
+  updateRing(delta) {
+    if (!this.ring || this.ring.collected) {
       return;
     }
-    if (this.acorn.zone === "inside" && this.location !== "inside") {
+    if (this.ring.zone === "inside" && this.location !== "inside") {
       return;
     }
-    this.acorn.spin += delta;
-    this.acorn.mesh.rotation.y = this.acorn.spin * 2;
-    const baseY = this.acorn.zone === "inside" ? 0.42 : 0.05;
-    this.acorn.mesh.position.y = baseY + Math.sin(this.acorn.spin * 3) * 0.08;
+    this.ring.spin += delta;
+    this.ring.mesh.rotation.y = this.ring.spin * 2;
+    const baseY = this.ring.zone === "inside" ? 0.42 : 0.05;
+    this.ring.mesh.position.y = baseY + Math.sin(this.ring.spin * 3) * 0.08;
 
     const acornWorld = new THREE.Vector3();
-    this.acorn.mesh.getWorldPosition(acornWorld);
+    this.ring.mesh.getWorldPosition(acornWorld);
     if (this.player.root.position.distanceTo(acornWorld) < 1.35) {
-      this.acorn.collected = true;
-      this.acorn.mesh.visible = false;
-      this.hasAcorn = true;
-      ui.status.textContent = "Acorn: found!";
-      ui.objective.textContent = "Go outside and bring the acorn to the exit gate.";
+      this.ring.collected = true;
+      this.ring.mesh.visible = false;
+      this.hasRing = true;
+      ui.status.textContent = "Ring: found!";
+      ui.objective.textContent = "Go outside and bring the One Ring to the exit gate.";
       this.sfx.pickup();
-      showMessage("You found the golden acorn!", 2200);
+      this.syncRingButton();
+      showMessage("You found the One Ring! Press Q to turn invisible.", 2600);
     }
   }
 
@@ -1716,16 +1752,260 @@ class Game {
     }
   }
 
+  refreshLevelSelectUi() {
+    this.progress = loadProgress();
+    const unlocked = this.progress.level1Complete;
+    ui.levelRivendellBtn.disabled = !unlocked;
+    ui.levelRivendellBtn.textContent = unlocked
+      ? "Level 2 — Rivendell"
+      : "Level 2 — Rivendell (locked)";
+  }
+
+  showLevelSelect() {
+    this.refreshLevelSelectUi();
+    ui.winScreen.classList.add("hidden");
+    ui.levelSelect.classList.remove("hidden");
+    ui.controlsHelp.classList.add("hidden");
+    ui.actionsMenu.classList.add("hidden");
+    ui.resetBtn.classList.add("hidden");
+    this.input.disable();
+    this.state = "levelSelect";
+  }
+
+  onWinContinue() {
+    this.showLevelSelect();
+  }
+
+  async selectLevel(levelId) {
+    if (levelId === "rivendell" && !loadProgress().level1Complete) {
+      showMessage("Complete the Shire quest first!", 2000);
+      return;
+    }
+    ui.levelSelect.classList.add("hidden");
+    ui.fade.classList.remove("hidden");
+    ui.fade.classList.add("show");
+    await new Promise((r) => setTimeout(r, 400));
+    await this.goToLevel(levelId);
+    ui.fade.classList.remove("show");
+    setTimeout(() => ui.fade.classList.add("hidden"), 450);
+    this.state = "playing";
+    this.input.enable();
+    this.focusGame();
+    this.input.requestPointerLock(this.canvas);
+    ui.controlsHelp.classList.remove("hidden");
+    ui.resetBtn.classList.remove("hidden");
+  }
+
+  async goToLevel(levelId) {
+    this.levelId = levelId;
+    saveProgress({ currentLevel: levelId });
+    this.won = false;
+    this.lyingDown = false;
+    this.clearInvisibility(true);
+    ui.actionsMenu.classList.add("hidden");
+    ui.winScreen.classList.add("hidden");
+
+    if (levelId === "rivendell") {
+      buildRivendellLevel(this);
+      this.rivendellBuilt = true;
+      resetRivendellQuest(this);
+      this.applyLevelActivation("rivendell");
+      this.player.root.position.copy(this.rivendellSpawn);
+      this.player.root.rotation.set(0, 0, 0);
+      this.player.velocity.set(0, 0, 0);
+      this.cameraYaw = 0;
+      this.cameraPitch = 0.28;
+      this.location = "outside";
+      this.scene.fog = new THREE.FogExp2(0xb8d4c8, 0.012);
+      ui.levelSubtitle.textContent = "Rivendell — The Last Homely House";
+      ui.objective.textContent = "Enter the hall, approach Elrond, then press E.";
+      ui.status.textContent = "Fellowship: speak with Elrond first";
+      ui.ringBtn.classList.add("hidden");
+      showMessage("Find Elrond inside the hall. Press E when Speak appears.", 3200);
+    } else {
+      this.hasRing = false;
+      this.ringCooldownTimer = 0;
+      if (this.ring) {
+        this.ring.collected = false;
+        this.ring.spin = 0;
+        this.ring.mesh.visible = true;
+        if (this.ring.zone === "inside") {
+          this.ring.mesh.position.set(-6.8, 0.42, -16.2);
+        }
+      }
+      this.applyLevelActivation("shire");
+      this.player.root.position.set(0, 0, 16);
+      this.player.root.rotation.set(0, 0, 0);
+      this.player.velocity.set(0, 0, 0);
+      this.cameraYaw = Math.PI;
+      this.cameraPitch = 0.32;
+      this.location = "outside";
+      this.scene.fog = new THREE.FogExp2(0xc5dcc0, 0.014);
+      ui.levelSubtitle.textContent = "Frodo's Shire Quest";
+      ui.objective.textContent = "Open Bag End, find the One Ring, then reach the exit gate.";
+      ui.status.textContent = "Ring: not found";
+      this.syncRingButton();
+      showMessage("Back in the Shire.", 1800);
+    }
+    this.player.model.rotation.set(0, 0, 0);
+    this.player.model.position.set(0, 0, 0);
+    this.player.swordPivot.visible = true;
+    this.snapCamera();
+  }
+
+  applyLevelActivation(levelId) {
+    this.levelId = levelId;
+    for (const c of this.colliders) {
+      const lvl = c.level || "shire";
+      if (lvl !== levelId) {
+        c.active = false;
+        continue;
+      }
+      c.active = true;
+    }
+    if (levelId === "shire") {
+      applyZone(this, this.location || "outside");
+      for (const c of this.colliders) {
+        if ((c.level || "shire") !== "shire") c.active = false;
+      }
+    }
+    if (this.bagEndGroup) this.bagEndGroup.visible = levelId === "shire";
+    if (this.rivendellGroup) this.rivendellGroup.visible = levelId === "rivendell";
+    if (this.orc && this.orc.root) this.orc.root.visible = levelId === "shire";
+  }
+
+  setPlayerOpacity(opacity) {
+    this.player.model.traverse((obj) => {
+      if (!obj.isMesh || !obj.material) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        m.transparent = opacity < 0.99;
+        m.opacity = opacity;
+        m.depthWrite = opacity > 0.9;
+      }
+    });
+  }
+
+  clearInvisibility(silent = false) {
+    this.ringInvisible = false;
+    this.ringInvisTimer = 0;
+    this.setPlayerOpacity(1);
+    if (!silent) this.syncRingButton();
+  }
+
+  syncRingButton() {
+    if (!ui.ringBtn) return;
+    if (this.levelId !== "shire" || !this.hasRing) {
+      ui.ringBtn.classList.add("hidden");
+      return;
+    }
+    ui.ringBtn.classList.remove("hidden");
+    if (this.ringInvisible) {
+      ui.ringLabel.textContent = "Invisible: " + Math.ceil(this.ringInvisTimer) + "s";
+      ui.ringBtn.disabled = true;
+    } else if (this.ringCooldownTimer > 0) {
+      ui.ringLabel.textContent = "Ring cooldown: " + Math.ceil(this.ringCooldownTimer) + "s";
+      ui.ringBtn.disabled = true;
+    } else {
+      ui.ringLabel.textContent = "Use Ring";
+      ui.ringBtn.disabled = false;
+    }
+  }
+
+  tryUseRing() {
+    if (this.levelId !== "shire" || !this.hasRing || this.ringInvisible || this.ringCooldownTimer > 0 || this.lyingDown) {
+      return;
+    }
+    this.ringInvisible = true;
+    this.ringInvisTimer = RING_INVIS_DURATION;
+    this.setPlayerOpacity(0.28);
+    this.syncRingButton();
+    showMessage("The Ring hides you!", 1600);
+  }
+
+  updateRingPower(delta) {
+    if (this.ringInvisible) {
+      this.ringInvisTimer -= delta;
+      this.syncRingButton();
+      if (this.ringInvisTimer <= 0) {
+        this.clearInvisibility();
+        this.ringCooldownTimer = RING_COOLDOWN;
+        showMessage("You are visible again.", 1400);
+      }
+    } else if (this.ringCooldownTimer > 0) {
+      this.ringCooldownTimer -= delta;
+      this.syncRingButton();
+    }
+  }
+
+  tryTalk() {
+    if (this.levelId !== "rivendell" || !this.npcs || !this.npcs.length) return;
+    const npc = nearestNpc(this.npcs, this.player.root.position, TALK_RANGE);
+    if (!npc) {
+      showMessage("No one close enough to talk.", 1200);
+      return;
+    }
+    if (npc.role !== "elrond" && !(this.rivendellQuest && this.rivendellQuest.spokenToElrond)) {
+      showMessage("Speak with Elrond first.", 1800);
+      return;
+    }
+    if (npc.spoken) {
+      showMessage(npc.name + ': "We already spoke, Frodo."', 1600);
+      return;
+    }
+    npc.spoken = true;
+    showMessage(npc.name + ': "' + npc.dialogue + '"', 3200);
+    if (npc.role === "elrond") {
+      this.rivendellQuest.spokenToElrond = true;
+      ui.objective.textContent = "Gather the Fellowship (0/8).";
+      ui.status.textContent = "Fellowship: 0/8 gathered";
+    } else {
+      this.rivendellQuest.gathered += 1;
+      const g = this.rivendellQuest.gathered;
+      const n = this.rivendellQuest.needed;
+      ui.status.textContent = "Fellowship: " + g + "/" + n + " gathered";
+      ui.objective.textContent = g >= n ? "The Council is ready!" : "Gather the Fellowship (" + g + "/" + n + ").";
+      if (g >= n) this.completeRivendell();
+    }
+  }
+
+  updateTalkUi() {
+    this.updateActionUi();
+  }
+
+  completeRivendell() {
+    if (this.won) return;
+    this.won = true;
+    this.state = "won";
+    this.input.disable();
+    ui.winTitle.textContent = "The Council is gathered!";
+    ui.winText.textContent = "You spoke with Elrond and united the Fellowship in Rivendell.";
+    ui.winScreen.classList.remove("hidden");
+    ui.controlsHelp.classList.add("hidden");
+    ui.actionsMenu.classList.add("hidden");
+    this.sfx.win();
+  }
+
+
   checkWin() {
-    if (!this.hasAcorn || this.won || !this.exitGate || this.location !== "outside") {
+    if (this.levelId === "rivendell" || this.won) {
+      return;
+    }
+    if (!this.hasRing || !this.exitGate || this.location !== "outside") {
       return;
     }
     if (overlaps(playerBox(this.player.root.position), this.exitGate.bounds)) {
       this.won = true;
       this.state = "won";
       this.input.disable();
+      markLevel1Complete();
+      this.refreshLevelSelectUi();
+      ui.winTitle.textContent = "You did it, Frodo!";
+      ui.winText.textContent = "You found the One Ring and reached the Shire gate. Rivendell awaits!";
       ui.winScreen.classList.remove("hidden");
       ui.controlsHelp.classList.add("hidden");
+      ui.ringBtn.classList.add("hidden");
+      ui.actionsMenu.classList.add("hidden");
       this.sfx.win();
     }
   }
@@ -1785,18 +2065,26 @@ class Game {
     requestAnimationFrame(this.animate);
     const delta = Math.min(this.clock.getDelta(), 0.05);
 
+    this.gameTime += delta;
     if (this.state === "playing") {
       this.updatePlayer(delta);
       this.updateAttack(delta);
-      this.updateDoors(delta);
-      this.updateZoneTransitions(delta);
-      if (this.location === "outside") {
-        this.updateOrc(delta);
-        this.updateSmoke(delta);
+      if (this.levelId === "shire") {
+        this.updateDoors(delta);
+        this.updateZoneTransitions(delta);
+        if (this.location === "outside") {
+          this.updateOrc(delta);
+          this.updateSmoke(delta);
+        }
+        this.updateRing(delta);
+        this.updateFireplace(delta);
+        this.updateBedUi();
+        this.updateRingPower(delta);
+      } else {
+        updateNpcIdle(this.npcs || [], this.gameTime);
+        animateRivendellWater(this, this.gameTime);
       }
-      this.updateAcorn(delta);
-      this.updateFireplace(delta);
-      this.updateBedUi();
+      this.updateActionUi();
       this.updateHitSparks(delta);
       this.checkWin();
     } else {

@@ -114,7 +114,8 @@ export function decorateRealisticWorld(game, tex) {
 
   // Soft grass tufts (simple crossed planes)
   const grassMat = new THREE.MeshStandardMaterial({
-    map: tex.leavesMap,
+    map: tex.grassMap || tex.leavesMap,
+    normalMap: tex.grassNor || undefined,
     color: 0x6faa4f,
     roughness: 0.9,
     metalness: 0,
@@ -122,10 +123,16 @@ export function decorateRealisticWorld(game, tex) {
     transparent: true,
     alphaTest: 0.35,
   });
-  for (let i = 0; i < 160; i += 1) {
-    const x = -18 + rng() * 36;
-    const z = -1 + rng() * 24;
+  for (let i = 0; i < 420; i += 1) {
+    const x = -24 + rng() * 48;
+    const z = -16 + rng() * 42;
     if (Math.abs(x) < 1.8 && z > 0 && z < 18) {
+      continue;
+    }
+    if (Math.abs(x) < 7 && z > -12 && z < -3) {
+      continue;
+    }
+    if (Math.hypot(x - 14, z - 16) < 3.4) {
       continue;
     }
     const tuft = new THREE.Group();
@@ -138,6 +145,8 @@ export function decorateRealisticWorld(game, tex) {
     }
     tuft.position.set(x, 0, z);
     tuft.rotation.y = rng() * Math.PI;
+    const scale = 0.75 + rng() * 0.75;
+    tuft.scale.set(scale, scale, scale);
     game.scene.add(tuft);
   }
 }

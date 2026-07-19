@@ -9,6 +9,7 @@ const GAME_KEYS = new Set([
   "ArrowLeft",
   "ArrowRight",
   "KeyE",
+  "KeyQ",
   "KeyF",
   "KeyR",
   "ShiftLeft",

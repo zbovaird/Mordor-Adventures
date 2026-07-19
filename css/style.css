@@ -41,9 +41,9 @@ body {
 #message,
 #start-btn,
 #reset-btn,
-#fire-btn,
-#bed-btn,
+#actions-menu,
 #win-screen,
+#level-select,
 #fade {
   pointer-events: auto;
 }
@@ -130,9 +130,7 @@ header h1 {
   pointer-events: auto;
 }
 
-#reset-btn,
-#fire-btn,
-#bed-btn {
+#reset-btn {
   position: absolute;
   border: 2px solid #6b8e4e;
   border-radius: 999px;
@@ -151,26 +149,83 @@ header h1 {
   right: 16px;
 }
 
-#fire-btn {
-  bottom: 16px;
-  left: 16px;
-  border-color: #d4782a;
-  color: #5c2e0a;
-  background: rgba(255, 236, 200, 0.95);
+#actions-menu {
+  position: absolute;
+  right: 16px;
+  bottom: 68px;
+  width: min(260px, calc(100vw - 32px));
+  padding: 12px;
+  border: 2px solid rgba(232, 224, 208, 0.8);
+  border-radius: 16px;
+  background: rgba(29, 36, 31, 0.82);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(7px);
+  color: #fff8dc;
+  pointer-events: auto;
 }
 
-#bed-btn {
-  bottom: 64px;
-  left: 16px;
-  border-color: #6b8e4e;
-  color: #2f4a2a;
-  background: rgba(232, 245, 215, 0.95);
+#actions-menu .actions-title {
+  margin: 0 2px 8px;
+  color: rgba(255, 248, 220, 0.72);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+#action-btn,
+#ring-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 11px;
+  padding: 9px 11px;
+  color: #fff8dc;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.94rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+#ring-btn {
+  margin-top: 7px;
+  border-color: rgba(226, 190, 74, 0.55);
+  background: rgba(126, 94, 14, 0.35);
+}
+
+.action-key {
+  display: grid;
+  flex: 0 0 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 0.85rem;
+}
+
+#actions-menu .actions-hint {
+  margin: 8px 2px 0;
+  color: rgba(255, 248, 220, 0.58);
+  font-size: 0.72rem;
 }
 
 #reset-btn:hover,
-#fire-btn:hover,
-#bed-btn:hover {
+#action-btn:not(:disabled):hover,
+#ring-btn:not(:disabled):hover {
   filter: brightness(1.03);
+}
+
+#action-btn:disabled,
+#ring-btn:disabled,
+#level-rivendell-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none;
 }
 
 #loading {
@@ -255,4 +310,53 @@ header h1 {
 #restart-btn {
   position: static;
   transform: none;
+}
+
+#level-select {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(47, 74, 42, 0.9);
+  color: #fff8dc;
+  text-align: center;
+  padding: 24px;
+  z-index: 15;
+}
+
+#level-select h2 {
+  font-size: 2rem;
+}
+
+#level-select .level-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  min-width: 280px;
+}
+
+#level-shire-btn,
+#level-rivendell-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 14px 22px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff8dc;
+  background: linear-gradient(180deg, #7cb342, #558b2f);
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+}
+
+#level-rivendell-btn:not(:disabled) {
+  background: linear-gradient(180deg, #7e57c2, #5e35b1);
+}
+
+#level-shire-btn:hover,
+#level-rivendell-btn:not(:disabled):hover {
+  filter: brightness(1.05);
 }
