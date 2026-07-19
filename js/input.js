@@ -23,7 +23,9 @@ export class Input {
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
     this.pointerLocked = false;
+    this.attackClicked = false;
     this._onMouseMove = null;
+    this._onMouseDown = null;
     this._onPointerLockChange = null;
   }
 
@@ -58,6 +60,17 @@ export class Input {
     };
     document.addEventListener("mousemove", this._onMouseMove);
 
+    this._onMouseDown = (event) => {
+      if (!this.enabled || !this.pointerLocked) {
+        return;
+      }
+      if (event.button === 0) {
+        event.preventDefault();
+        this.attackClicked = true;
+      }
+    };
+    canvas.addEventListener("mousedown", this._onMouseDown);
+
     this._onPointerLockChange = () => {
       this.pointerLocked = document.pointerLockElement === canvas;
       if (!this.pointerLocked) {
@@ -87,6 +100,7 @@ export class Input {
     this.justPressed.clear();
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
+    this.attackClicked = false;
   }
 
   disable() {
@@ -95,6 +109,7 @@ export class Input {
     this.justPressed.clear();
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
+    this.attackClicked = false;
     this.exitPointerLock();
   }
 
@@ -104,6 +119,10 @@ export class Input {
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;
     return { dx, dy };
+  }
+
+  wasAttackClicked() {
+    return this.enabled && this.attackClicked;
   }
 
   isDown(code) {
@@ -116,6 +135,7 @@ export class Input {
 
   endFrame() {
     this.justPressed.clear();
+    this.attackClicked = false;
   }
 
   getMoveInput() {

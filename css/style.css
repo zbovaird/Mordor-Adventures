@@ -41,6 +41,8 @@ body {
 #message,
 #start-btn,
 #reset-btn,
+#fire-btn,
+#bed-btn,
 #win-screen,
 #fade {
   pointer-events: auto;
@@ -128,10 +130,10 @@ header h1 {
   pointer-events: auto;
 }
 
-#reset-btn {
+#reset-btn,
+#fire-btn,
+#bed-btn {
   position: absolute;
-  bottom: 16px;
-  right: 16px;
   border: 2px solid #6b8e4e;
   border-radius: 999px;
   padding: 10px 18px;
@@ -141,9 +143,33 @@ header h1 {
   background: rgba(255, 248, 220, 0.92);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
   cursor: pointer;
+  pointer-events: auto;
 }
 
-#reset-btn:hover {
+#reset-btn {
+  bottom: 16px;
+  right: 16px;
+}
+
+#fire-btn {
+  bottom: 16px;
+  left: 16px;
+  border-color: #d4782a;
+  color: #5c2e0a;
+  background: rgba(255, 236, 200, 0.95);
+}
+
+#bed-btn {
+  bottom: 64px;
+  left: 16px;
+  border-color: #6b8e4e;
+  color: #2f4a2a;
+  background: rgba(232, 245, 215, 0.95);
+}
+
+#reset-btn:hover,
+#fire-btn:hover,
+#bed-btn:hover {
   filter: brightness(1.03);
 }
 

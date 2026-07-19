@@ -6,7 +6,7 @@ import { createRealisticFrodo } from "./realisticHobbit.js";
 import { createRealisticOrc } from "./realisticOrc.js";
 import { loadHoleTextures, buildDetailedHobbitHole } from "./detailedHole.js";
 import { loadNatureTextures, decorateRealisticWorld } from "./natureProps.js";
-import { buildBagEnd, applyZone } from "./bagEnd.js";
+import { buildBagEnd, applyZone, toggleFireplace, applyFireplaceState } from "./bagEnd.js";
 import {
   createEnvMap,
   createSkyDome,
@@ -29,9 +29,19 @@ const MOUSE_SENSITIVITY = 0.0022;
 const PLAYER_RADIUS = 0.34;
 const PLAYER_HEIGHT = 1.05;
 const ATTACK_RANGE = 1.85;
-const ATTACK_COOLDOWN = 0.85;
-const ATTACK_DURATION = 0.55;
-const HIT_FRAME = 0.28;
+const ATTACK_COOLDOWN = 0.55;
+const ATTACK_DURATION = 0.52;
+const HIT_FRAME = 0.24;
+const FIREPLACE_RANGE = 2.6;
+const BED_RANGE = 2.4;
+
+function easeOutCubic(t) {
+  return 1 - (1 - t) ** 3;
+}
+
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+}
 const INTERACT_RANGE = 2.4;
 const COYOTE_TIME = 0.14;
 const JUMP_BUFFER = 0.14;
@@ -45,6 +55,8 @@ const ui = {
   restartBtn: document.getElementById("restart-btn"),
   resetBtn: document.getElementById("reset-btn"),
   controlsHelp: document.getElementById("controls-help"),
+  fireBtn: document.getElementById("fire-btn"),
+  bedBtn: document.getElementById("bed-btn"),
   loading: document.getElementById("loading"),
   loadingBar: document.getElementById("loading-bar"),
   loadingPct: document.getElementById("loading-pct"),
@@ -233,6 +245,7 @@ class Game {
     this.location = "outside";
     this.zoneCooldown = 0;
     this.transitioning = false;
+    this.lyingDown = false;
 
     this.sky = createSkyDome();
     this.scene.add(this.sky);
@@ -836,6 +849,14 @@ class Game {
     ui.startBtn.addEventListener("click", () => this.start());
     ui.restartBtn.addEventListener("click", () => this.reset());
     ui.resetBtn.addEventListener("click", () => this.reset());
+    ui.fireBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.toggleBagEndFire();
+    });
+    ui.bedBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.toggleBed();
+    });
   }
 
   focusGame() {
@@ -865,6 +886,7 @@ class Game {
     this.attackCooldown = 0;
     this.zoneCooldown = 0;
     this.transitioning = false;
+    this.lyingDown = false;
     this.location = "outside";
     this.attackTimer = 0;
     this.attackActive = false;
@@ -880,9 +902,10 @@ class Game {
     this.player.velocity.set(0, 0, 0);
     this.player.onGround = true;
     this.player.walkPhase = 0;
-    this.player.model.position.y = 0;
+    this.player.model.position.set(0, 0, 0);
     this.player.model.rotation.set(0, 0, 0);
     this.player.swordPivot.rotation.set(0, 0, 0);
+    this.player.swordPivot.visible = true;
     this.player.facing.set(0, 0, -1);
 
     this.hitSparks.forEach((spark) => this.scene.remove(spark.mesh));
@@ -894,7 +917,7 @@ class Game {
       this.acorn.mesh.visible = true;
       this.acorn.mesh.rotation.y = 0;
       if (this.acorn.zone === "inside") {
-        this.acorn.mesh.position.set(-4.6, 0.42, -13.9);
+        this.acorn.mesh.position.set(-6.8, 0.42, -16.2);
       } else {
         this.acorn.mesh.position.set(1.8, 0.05, -15.2);
       }
@@ -910,6 +933,17 @@ class Game {
     });
     if (this.zoneTriggers) {
       applyZone(this, "outside");
+    }
+    if (this.fireplace) {
+      this.fireplace.lit = true;
+      applyFireplaceState(this.fireplace);
+    }
+    ui.fireBtn.classList.add("hidden");
+    ui.bedBtn.classList.add("hidden");
+    this.syncFireButtonLabel();
+    this.syncBedButtonLabel();
+    if (this.bed) {
+      this.bed.lying = false;
     }
 
     if (this.orc) {
@@ -1013,8 +1047,8 @@ class Game {
     this.snapCamera();
     ui.objective.textContent = this.hasAcorn
       ? "Bring the acorn outside to the exit gate."
-      : "Explore Bag End and find the golden acorn.";
-    showMessage("Welcome to Bag End! Look around with the mouse.", 2200);
+      : "Explore Bag End's rooms and find the golden acorn in the kitchen.";
+    showMessage("Welcome to Bag End! Wander the round doorways.", 2200);
     await this.fadeFromBlack();
     this.transitioning = false;
   }
@@ -1042,7 +1076,7 @@ class Game {
   }
 
   updateZoneTransitions(delta) {
-    if (!this.zoneTriggers || this.transitioning) {
+    if (!this.zoneTriggers || this.transitioning || this.lyingDown) {
       return;
     }
     if (this.zoneCooldown > 0) {
@@ -1092,8 +1126,129 @@ class Game {
     }
   }
 
+  nearFireplace() {
+    if (!this.fireplace || this.location !== "inside" || this.lyingDown) {
+      return false;
+    }
+    return this.player.root.position.distanceTo(this.fireplace.interactPoint) < FIREPLACE_RANGE;
+  }
+
+  nearBed() {
+    if (!this.bed || this.location !== "inside") {
+      return false;
+    }
+    if (this.lyingDown) {
+      return true;
+    }
+    return this.player.root.position.distanceTo(this.bed.interactPoint) < BED_RANGE;
+  }
+
+  syncFireButtonLabel() {
+    if (!ui.fireBtn || !this.fireplace) {
+      return;
+    }
+    ui.fireBtn.textContent = this.fireplace.lit ? "Fire: On" : "Fire: Off";
+  }
+
+  syncBedButtonLabel() {
+    if (!ui.bedBtn) {
+      return;
+    }
+    ui.bedBtn.textContent = this.lyingDown ? "Get Up" : "Lie Down";
+  }
+
+  toggleBagEndFire() {
+    if (!this.fireplace || this.location !== "inside" || this.lyingDown) {
+      return;
+    }
+    const lit = toggleFireplace(this.fireplace);
+    this.syncFireButtonLabel();
+    showMessage(lit ? "The hearth crackles to life!" : "The fire goes out.", 1600);
+  }
+
+  lieDownInBed() {
+    if (!this.bed || this.lyingDown || this.location !== "inside") {
+      return;
+    }
+    const player = this.player;
+    this.lyingDown = true;
+    this.bed.lying = true;
+    this.attackActive = false;
+    this.attackTimer = 0;
+    player.velocity.set(0, 0, 0);
+    player.onGround = true;
+    player.root.position.copy(this.bed.liePosition);
+    player.root.rotation.set(0, this.bed.lieYaw, 0);
+    player.model.rotation.set(Math.PI / 2, 0, 0);
+    player.model.position.set(0, 0.12, 0);
+    player.swordPivot.visible = false;
+    player.facing.set(0, 0, -1);
+    this.cameraYaw = this.bed.lieYaw + 0.55;
+    this.cameraPitch = 0.18;
+    this.snapCamera();
+    this.syncBedButtonLabel();
+    showMessage("Sweet dreams… press Get Up when ready.", 2200);
+  }
+
+  getUpFromBed(silent = false) {
+    const player = this.player;
+    if (!player) {
+      return;
+    }
+    const wasLying = this.lyingDown;
+    this.lyingDown = false;
+    if (this.bed) {
+      this.bed.lying = false;
+      if (wasLying) {
+        player.root.position.copy(this.bed.standPosition);
+        player.root.rotation.set(0, 0, 0);
+        this.cameraYaw = 0;
+        this.cameraPitch = 0.12;
+      }
+    }
+    player.model.rotation.set(0, 0, 0);
+    player.model.position.set(0, 0, 0);
+    player.swordPivot.visible = true;
+    player.swordPivot.rotation.set(0, 0, 0);
+    player.velocity.set(0, 0, 0);
+    this.syncBedButtonLabel();
+    if (wasLying) {
+      this.snapCamera();
+      if (!silent) {
+        showMessage("Up you get, Frodo!", 1400);
+      }
+    }
+  }
+
+  toggleBed() {
+    if (this.lyingDown) {
+      this.getUpFromBed();
+      return;
+    }
+    if (!this.nearBed()) {
+      return;
+    }
+    this.lieDownInBed();
+  }
+
   tryInteract() {
+    if (this.lyingDown) {
+      this.getUpFromBed();
+      return;
+    }
+
+    if (this.nearBed()) {
+      this.lieDownInBed();
+      return;
+    }
+
+    if (this.nearFireplace()) {
+      this.toggleBagEndFire();
+      return;
+    }
+
     const playerPos = this.player.root.position;
+
     let nearest = null;
     let nearestDist = INTERACT_RANGE;
 
@@ -1109,7 +1264,7 @@ class Game {
     }
 
     if (!nearest) {
-      showMessage("No door nearby.", 1200);
+      showMessage("Nothing to use nearby.", 1200);
       return;
     }
 
@@ -1171,36 +1326,66 @@ class Game {
     const player = this.player;
     const pivot = player.swordPivot;
     if (!this.attackActive) {
-      pivot.rotation.x = damp(pivot.rotation.x, 0, 10, delta);
-      pivot.rotation.y = damp(pivot.rotation.y, 0, 10, delta);
-      pivot.rotation.z = damp(pivot.rotation.z, 0, 10, delta);
+      pivot.rotation.x = damp(pivot.rotation.x, 0, 12, delta);
+      pivot.rotation.y = damp(pivot.rotation.y, 0, 12, delta);
+      pivot.rotation.z = damp(pivot.rotation.z, 0, 12, delta);
+      pivot.position.x = damp(pivot.position.x, 0.18, 12, delta);
+      pivot.position.y = damp(pivot.position.y, 0.12, 12, delta);
+      pivot.position.z = damp(pivot.position.z, 0.08, 12, delta);
       return;
     }
 
     this.attackTimer += delta;
     const t = Math.min(this.attackTimer / ATTACK_DURATION, 1);
 
-    // Wind-up, slash, recover on the sword pivot
-    if (t < 0.35) {
-      const u = t / 0.35;
+    // Wind-up over the shoulder, fast diagonal slash, follow-through, recover
+    if (t < 0.28) {
+      const u = easeOutCubic(t / 0.28);
       pivot.rotation.set(
-        THREE.MathUtils.lerp(0, -1.2, u),
-        THREE.MathUtils.lerp(0, 0.7, u),
-        THREE.MathUtils.lerp(0, -0.4, u)
+        THREE.MathUtils.lerp(0, -1.55, u),
+        THREE.MathUtils.lerp(0, 1.05, u),
+        THREE.MathUtils.lerp(0, -0.85, u)
       );
-    } else if (t < 0.6) {
-      const u = (t - 0.35) / 0.25;
+      pivot.position.set(
+        THREE.MathUtils.lerp(0.18, 0.28, u),
+        THREE.MathUtils.lerp(0.12, 0.32, u),
+        THREE.MathUtils.lerp(0.08, 0.02, u)
+      );
+    } else if (t < 0.48) {
+      const u = easeInOutCubic((t - 0.28) / 0.2);
       pivot.rotation.set(
-        THREE.MathUtils.lerp(-1.2, 0.9, u),
-        THREE.MathUtils.lerp(0.7, -0.55, u),
-        THREE.MathUtils.lerp(-0.4, 0.65, u)
+        THREE.MathUtils.lerp(-1.55, 1.15, u),
+        THREE.MathUtils.lerp(1.05, -0.95, u),
+        THREE.MathUtils.lerp(-0.85, 1.1, u)
+      );
+      pivot.position.set(
+        THREE.MathUtils.lerp(0.28, 0.05, u),
+        THREE.MathUtils.lerp(0.32, 0.08, u),
+        THREE.MathUtils.lerp(0.02, 0.22, u)
+      );
+    } else if (t < 0.68) {
+      const u = (t - 0.48) / 0.2;
+      pivot.rotation.set(
+        THREE.MathUtils.lerp(1.15, 0.55, u),
+        THREE.MathUtils.lerp(-0.95, -0.35, u),
+        THREE.MathUtils.lerp(1.1, 0.45, u)
+      );
+      pivot.position.set(
+        THREE.MathUtils.lerp(0.05, 0.12, u),
+        THREE.MathUtils.lerp(0.08, 0.1, u),
+        THREE.MathUtils.lerp(0.22, 0.14, u)
       );
     } else {
-      const u = (t - 0.6) / 0.4;
+      const u = easeInOutCubic((t - 0.68) / 0.32);
       pivot.rotation.set(
-        THREE.MathUtils.lerp(0.9, 0, u),
-        THREE.MathUtils.lerp(-0.55, 0, u),
-        THREE.MathUtils.lerp(0.65, 0, u)
+        THREE.MathUtils.lerp(0.55, 0, u),
+        THREE.MathUtils.lerp(-0.35, 0, u),
+        THREE.MathUtils.lerp(0.45, 0, u)
+      );
+      pivot.position.set(
+        THREE.MathUtils.lerp(0.12, 0.18, u),
+        THREE.MathUtils.lerp(0.1, 0.12, u),
+        THREE.MathUtils.lerp(0.14, 0.08, u)
       );
     }
 
@@ -1212,6 +1397,47 @@ class Game {
     if (t >= 1) {
       this.attackActive = false;
       this.attackTimer = 0;
+    }
+  }
+
+  updateFireplace(delta) {
+    const fire = this.fireplace;
+    if (!fire) {
+      return;
+    }
+    const near = this.nearFireplace();
+    if (this.location === "inside" && near) {
+      ui.fireBtn.classList.remove("hidden");
+      this.syncFireButtonLabel();
+    } else {
+      ui.fireBtn.classList.add("hidden");
+    }
+    if (!fire.lit || this.location !== "inside") {
+      return;
+    }
+    fire.flicker += delta * 10;
+    fire.flames.forEach((flame, i) => {
+      const wobble = Math.sin(fire.flicker * 1.7 + i * 1.3);
+      flame.scale.set(
+        0.85 + wobble * 0.12,
+        0.9 + Math.sin(fire.flicker * 2.4 + i) * 0.2,
+        0.85 + wobble * 0.1
+      );
+      flame.rotation.z = wobble * 0.15;
+    });
+    fire.light.intensity = 1.45 + Math.sin(fire.flicker * 3.1) * 0.35;
+  }
+
+  updateBedUi() {
+    if (!this.bed) {
+      ui.bedBtn.classList.add("hidden");
+      return;
+    }
+    if (this.location === "inside" && this.nearBed()) {
+      ui.bedBtn.classList.remove("hidden");
+      this.syncBedButtonLabel();
+    } else {
+      ui.bedBtn.classList.add("hidden");
     }
   }
 
@@ -1292,6 +1518,23 @@ class Game {
 
   updatePlayer(delta) {
     const player = this.player;
+
+    if (this.lyingDown) {
+      this.applyMouseLook();
+      player.velocity.set(0, 0, 0);
+      player.root.position.copy(this.bed.liePosition);
+      player.root.rotation.set(0, this.bed.lieYaw, 0);
+      player.model.rotation.set(Math.PI / 2, 0, 0);
+      player.model.position.set(0, 0.12, 0);
+      if (this.input.wasPressed("KeyE") || this.input.wasPressed("Space")) {
+        this.getUpFromBed();
+      }
+      if (this.input.wasPressed("KeyR")) {
+        this.reset();
+      }
+      return;
+    }
+
     this.applyMouseLook();
     const { forward, right, run } = this.input.getMoveInput();
     const desired = this.getCameraRelativeMove(forward, right);
@@ -1404,7 +1647,7 @@ class Game {
       this.tryInteract();
     }
 
-    if (this.input.wasPressed("KeyF")) {
+    if (this.input.wasPressed("KeyF") || this.input.wasAttackClicked()) {
       this.tryAttack();
     }
 
@@ -1489,10 +1732,9 @@ class Game {
 
   getCameraRig(target, speed = 0) {
     const inside = this.location === "inside";
-    const distance = inside
-      ? 2.85
-      : 6.8 + Math.min(speed * 0.12, 0.8);
-    const lookHeight = inside ? 0.95 : 1.15;
+    const lying = this.lyingDown;
+    const distance = lying ? 2.4 : inside ? 2.85 : 6.8 + Math.min(speed * 0.12, 0.8);
+    const lookHeight = lying ? 0.7 : inside ? 0.95 : 1.15;
     const bob =
       this.player.onGround && !inside
         ? Math.sin(this.player.walkPhase * 2) * Math.min(speed, 3) * 0.015
@@ -1553,6 +1795,8 @@ class Game {
         this.updateSmoke(delta);
       }
       this.updateAcorn(delta);
+      this.updateFireplace(delta);
+      this.updateBedUi();
       this.updateHitSparks(delta);
       this.checkWin();
     } else {
