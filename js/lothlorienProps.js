@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { createReflectiveWater } from "./water.js";
+import { createDriftField, createWindGrass } from "./vegetation.js";
 
 export const LOTHLORIEN_ORIGIN = new THREE.Vector3(0, 0, 520);
 
@@ -292,13 +294,14 @@ export function buildLothlorienWorld(game, group) {
   // Galadriel's fountain and mirror garden on the highest talan.
   const fountainBase = mesh(new THREE.CylinderGeometry(2.4, 2.8, 0.45, 24), mat(0xd9e4df, { metalness: 0.35, roughness: 0.32 }));
   fountainBase.position.set(-3.8, 8.25, 39);
-  const water = mesh(
-    new THREE.CylinderGeometry(2.05, 2.05, 0.09, 24),
-    mat(0x9fd7ea, { transparent: true, opacity: 0.72, metalness: 0.2, roughness: 0.18 }),
-    false,
-    true
-  );
-  water.position.set(-3.8, 8.51, 39);
+  const water = createReflectiveWater(new THREE.CircleGeometry(2.05, 24), {
+    waterColor: 0x3d7a8a,
+    distortionScale: 0.7,
+    size: 8,
+  });
+  water.rotation.x = -Math.PI / 2;
+  water.position.set(-3.8, 8.52, 39);
+  game.waterSurfaces.push(water);
   const mirror = mesh(
     new THREE.CylinderGeometry(1.3, 1.05, 1.2, 18),
     mat(0xc5d6d8, { metalness: 0.65, roughness: 0.2 })
@@ -313,6 +316,38 @@ export function buildLothlorienWorld(game, group) {
   ]) {
     addSilverLamp(group, x, y, z);
   }
+
+  // Golden mallorn leaves drifting down through the wood
+  const leaves = createDriftField({
+    count: 240,
+    bounds: { minX: -40, maxX: 40, minY: 1, maxY: 20, minZ: -45, maxZ: 60 },
+    color: 0xe8c65a,
+    size: 0.14,
+    opacity: 0.7,
+    fallSpeed: 0.55,
+    driftSpeed: 0.5,
+  });
+  leaves.userData.level = "lothlorien";
+  group.add(leaves);
+  game.driftFields.push(leaves);
+
+  // Meadow grass swaying beneath the mallorns (one instanced draw call)
+  const meadow = createWindGrass({
+    count: 2600,
+    color: 0x6d8f47,
+    tipColor: 0xd8c05e,
+    windStrength: 0.18,
+    placer: () => {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.sqrt(Math.random()) * 40;
+      const x = Math.cos(angle) * radius;
+      const z = 10 + Math.sin(angle) * radius;
+      if (Math.abs(x) < 5 && z < -16) return null; // keep the entry path clear
+      return { x, y: 0, z };
+    },
+  });
+  group.add(meadow);
+  game.windGrasses.push(meadow);
 
   game.lothlorienLights = [];
   const fireflyMat = mat(0xffeb86, { emissive: 0xffd740, emissiveIntensity: 2 }, false, false);

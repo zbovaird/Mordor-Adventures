@@ -38,12 +38,15 @@ import {
 } from "./progress.js";
 import {
   createEnvMap,
-  createSkyDome,
   makeNoiseTexture,
   makeWoodTexture,
   mat,
   mesh,
 } from "./materials.js";
+import { FxPipeline, SwordTrail } from "./fx.js";
+import { Atmosphere } from "./atmosphere.js";
+import { createReflectiveWater, updateWaterSurfaces } from "./water.js";
+import { updateDriftField } from "./vegetation.js";
 
 const WALK_SPEED = 3.6;
 const RUN_SPEED = 5.8;
@@ -290,7 +293,7 @@ class Game {
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0xc5dcc0, 0.014);
 
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 280);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -298,6 +301,15 @@ class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    this.fx = new FxPipeline(this.renderer, this.scene, this.camera);
+    this.atmosphere = new Atmosphere(this.scene, this.renderer);
+    this.swordTrail = new SwordTrail(this.scene);
+    this.waterSurfaces = [];
+    this.windGrasses = [];
+    this.driftFields = [];
+    this.hitStop = 0;
+    this.baseFov = 50;
 
     this.grassMap = makeNoiseTexture(256, {
       base: [82, 132, 62],
@@ -321,8 +333,7 @@ class Game {
     this.transitioning = false;
     this.lyingDown = false;
 
-    this.sky = createSkyDome();
-    this.scene.add(this.sky);
+    this.sky = null;
 
     this.setupLights();
     this.bindEvents();
@@ -346,7 +357,20 @@ class Game {
       ui.loadingPct.textContent = "Textures…";
       this.holeTextures = await loadHoleTextures();
       this.natureTextures = await loadNatureTextures();
-      ui.loadingBar.style.width = "70%";
+      ui.loadingBar.style.width = "60%";
+
+      ui.loadingPct.textContent = "Nature models…";
+      await this.assets.loadNatureModels([
+        "rock_largeA.glb", "rock_largeB.glb",
+        "rock_smallA.glb", "rock_smallB.glb", "rock_smallE.glb",
+        "stone_smallA.glb", "stone_smallB.glb",
+        "mushroom_red.glb", "mushroom_redGroup.glb", "mushroom_tan.glb",
+        "flower_purpleA.glb", "flower_purpleB.glb",
+        "flower_redA.glb", "flower_redB.glb",
+        "flower_yellowA.glb", "flower_yellowB.glb",
+        "plant_bush.glb", "plant_bushDetailed.glb", "plant_bushLarge.glb",
+      ]);
+      ui.loadingBar.style.width = "80%";
       ui.loadingPct.textContent = "Building world…";
     } catch (error) {
       console.error(error);
@@ -355,18 +379,12 @@ class Game {
     }
 
     if (this.assets.envMap) {
+      // HDR drives image-based lighting; the physical Sky is the backdrop.
       this.scene.environment = this.assets.envMap;
-      this.scene.background = this.assets.envMap;
-      this.renderer.toneMappingExposure = 0.95;
-      if (this.sky) {
-        this.sky.visible = false;
-      }
     } else {
       this.scene.environment = createEnvMap(this.renderer);
     }
-    this.defaultBackground = this.scene.background;
-    this.defaultExposure = this.renderer.toneMappingExposure;
-    this.defaultSkyVisible = this.sky?.visible ?? false;
+    this.atmosphere.apply("shire", { sun: this.sun, hemi: this.hemi });
 
     // Apply grass PBR to ground texture helper
     if (this.natureTextures?.grassMap) {
@@ -388,6 +406,12 @@ class Game {
     ui.loading.classList.add("hidden");
     ui.startBtn.classList.remove("hidden");
     ui.levelSelectBtn.classList.remove("hidden");
+
+    // Direct level launch for testing: index.html?level=moria
+    const requested = new URLSearchParams(window.location.search).get("level");
+    if (["shire", "rivendell", "moria", "lothlorien"].includes(requested)) {
+      this.selectLevel(requested, { force: true });
+    }
   }
 
   createFrodo() {
@@ -404,7 +428,8 @@ class Game {
 
   setupLights() {
     this.scene.add(new THREE.AmbientLight(0xddeeff, 0.22));
-    this.scene.add(new THREE.HemisphereLight(0xe7f3ff, 0x5f7a3a, 0.65));
+    this.hemi = new THREE.HemisphereLight(0xe7f3ff, 0x5f7a3a, 0.65);
+    this.scene.add(this.hemi);
 
     this.sun = new THREE.DirectionalLight(0xfff2d0, 2.4);
     this.sun.position.set(18, 28, 14);
@@ -417,7 +442,7 @@ class Game {
     this.sun.shadow.camera.top = 32;
     this.sun.shadow.camera.bottom = -32;
     this.sun.shadow.camera.near = 2;
-    this.sun.shadow.camera.far = 75;
+    this.sun.shadow.camera.far = 120;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
@@ -620,20 +645,16 @@ class Game {
   }
 
   addPond(x, z) {
-    const water = mesh(
-      new THREE.CircleGeometry(2.4, 32),
-      mat(0x4fa8c8, {
-        roughness: 0.08,
-        metalness: 0.65,
-        envMapIntensity: 1.8,
-        emissive: 0x113344,
-        emissiveIntensity: 0.15,
-      }),
-      false,
-      true
-    );
+    // Real planar-reflection water (three.js Water addon)
+    const water = createReflectiveWater(new THREE.CircleGeometry(2.4, 32), {
+      waterColor: 0x2a6653,
+      distortionScale: 1.1,
+      size: 6,
+    });
     water.rotation.x = -Math.PI / 2;
-    water.position.set(x, 0.02, z);
+    water.position.set(x, 0.06, z);
+    water.userData.level = "shire";
+    this.waterSurfaces.push(water);
     const rim = mesh(
       new THREE.RingGeometry(2.35, 2.7, 32),
       mat(0x8d6e63, { roughness: 0.9, map: this.woodMap }),
@@ -935,6 +956,7 @@ class Game {
   start() {
     this.sfx.init();
     this.sfx.resume();
+    this.sfx.startAmbience(this.levelId);
     this.state = "playing";
     this.input.enable();
     this.focusGame();
@@ -1117,6 +1139,7 @@ class Game {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    this.fx.setSize(width, height, this.renderer.getPixelRatio());
   }
 
   getGroundHeight(x, z) {
@@ -1483,6 +1506,9 @@ class Game {
     this.playerHealth = Math.max(0, this.playerHealth - amount);
     this.playerDamageCooldown = 0.7;
     this.player.model.rotation.z = 0.16;
+    this.fx.flashDamage(0.85);
+    this.fx.addTrauma(0.5);
+    this.sfx.playerHurt();
     this.refreshMoriaHud();
     showMessage(`${attacker} hits Frodo!`, 850);
     if (this.playerHealth <= 0) {
@@ -1597,6 +1623,12 @@ class Game {
     best.root.getWorldPosition(hitPosition);
     this.spawnHitSparks(hitPosition);
     this.sfx.swordHit();
+    this.fx.addTrauma(best.kind === "balrog" ? 0.4 : 0.26);
+    this.hitStop = best.kind === "balrog" ? 0.11 : 0.07;
+    if (best.kind !== "balrog") {
+      // Shove the target away from the blow
+      best.knockback = this.player.facing.clone().multiplyScalar(5.5);
+    }
     if (this.levelId === "moria") {
       damageMoriaEnemy(this, best, best.kind === "balrog" ? 16 : 24);
     } else {
@@ -1681,6 +1713,14 @@ class Game {
     pivot.rotation.z *= this.attackDirection;
     if (this.attackTimer >= HIT_FRAME && this.attackTimer <= HIT_WINDOW_END) {
       this.landSwordHit();
+    }
+
+    // Feed the fading blade trail during the active part of the swing
+    if (t > 0.2 && t < 0.75 && pivot.visible) {
+      pivot.updateWorldMatrix(true, false);
+      const base = pivot.localToWorld(new THREE.Vector3(0.04, 0.1, 0.06));
+      const tip = pivot.localToWorld(new THREE.Vector3(0.04, 0.9, 0.06));
+      this.swordTrail.push(base, tip);
     }
 
     if (t >= 1) {
@@ -1910,6 +1950,18 @@ class Game {
       player.model.position.y = bob;
       player.model.rotation.z = sway;
       player.model.rotation.x = Math.sin(player.walkPhase * 2) * 0.03 * gait;
+
+      this.footstepTimer -= delta;
+      if (this.footstepTimer <= 0) {
+        this.footstepTimer = 0.52 / Math.max(gait, 0.6);
+        const surface =
+          this.levelId === "moria" || this.levelId === "rivendell"
+            ? "stone"
+            : this.location === "inside" || this.levelId === "lothlorien"
+              ? "wood"
+              : "grass";
+        this.sfx.footstep(surface);
+      }
     } else {
       player.model.position.y = damp(player.model.position.y, 0, 10, delta);
       player.model.rotation.z = damp(player.model.rotation.z, 0, 10, delta);
@@ -2023,8 +2075,8 @@ class Game {
     this.showLevelSelect();
   }
 
-  async selectLevel(levelId) {
-    if (levelId === "rivendell" && !loadProgress().level1Complete) {
+  async selectLevel(levelId, { force = false } = {}) {
+    if (!force && levelId === "rivendell" && !loadProgress().level1Complete) {
       showMessage("Complete the Shire quest first!", 2000);
       return;
     }
@@ -2071,11 +2123,9 @@ class Game {
       this.cameraYaw = 0;
       this.cameraPitch = 0.28;
       this.location = "lothlorien";
-      this.scene.background = new THREE.Color(0x293c27);
-      this.scene.fog = new THREE.FogExp2(0xd7dda6, 0.012);
-      this.renderer.toneMappingExposure = 0.9;
-      if (this.sky) this.sky.visible = false;
-      if (this.sun) this.sun.intensity = 1.45;
+      this.atmosphere.apply("lothlorien", { sun: this.sun, hemi: this.hemi });
+      this.fx.setBloom(0.35, 0.45, 0.9);
+      this.sfx.startAmbience("lothlorien");
       ui.levelSubtitle.textContent = "Level 4 — Lothlórien";
       ui.ringBtn.classList.add("hidden");
       this.setLothlorienQuestStage(0);
@@ -2093,11 +2143,9 @@ class Game {
       this.cameraYaw = 0;
       this.cameraPitch = 0.2;
       this.location = "moria";
-      this.scene.background = new THREE.Color(0x08090b);
-      this.scene.fog = new THREE.FogExp2(0x111418, 0.022);
-      this.renderer.toneMappingExposure = 0.66;
-      if (this.sky) this.sky.visible = false;
-      if (this.sun) this.sun.intensity = 0.28;
+      this.atmosphere.apply("moria", { sun: this.sun, hemi: this.hemi });
+      this.fx.setBloom(0.85, 0.65, 0.62);
+      this.sfx.startAmbience("moria");
       ui.levelSubtitle.textContent = "Level 3 — The Mines of Moria";
       ui.objective.textContent = "Fight through the Dwarrowdelf and reach the Bridge of Khazad-dûm.";
       ui.status.textContent = "Orcs remaining: 16";
@@ -2117,11 +2165,9 @@ class Game {
       this.cameraYaw = 0;
       this.cameraPitch = 0.28;
       this.location = "outside";
-      this.scene.background = this.defaultBackground;
-      this.scene.fog = new THREE.FogExp2(0xb8d4c8, 0.012);
-      this.renderer.toneMappingExposure = this.defaultExposure;
-      if (this.sky) this.sky.visible = this.defaultSkyVisible;
-      if (this.sun) this.sun.intensity = 2.4;
+      this.atmosphere.apply("rivendell", { sun: this.sun, hemi: this.hemi });
+      this.fx.setBloom(0.4, 0.5, 0.92);
+      this.sfx.startAmbience("rivendell");
       ui.combatHud.classList.add("hidden");
       ui.levelSubtitle.textContent = "Rivendell — The Last Homely House";
       ui.objective.textContent = "Enter the hall, approach Elrond, then press E.";
@@ -2146,11 +2192,9 @@ class Game {
       this.cameraYaw = Math.PI;
       this.cameraPitch = 0.32;
       this.location = "outside";
-      this.scene.background = this.defaultBackground;
-      this.scene.fog = new THREE.FogExp2(0xc5dcc0, 0.014);
-      this.renderer.toneMappingExposure = this.defaultExposure;
-      if (this.sky) this.sky.visible = this.defaultSkyVisible;
-      if (this.sun) this.sun.intensity = 2.4;
+      this.atmosphere.apply("shire", { sun: this.sun, hemi: this.hemi });
+      this.fx.setBloom(0.38, 0.5, 0.86);
+      this.sfx.startAmbience("shire");
       ui.combatHud.classList.add("hidden");
       ui.levelSubtitle.textContent = "Frodo's Shire Quest";
       ui.objective.textContent = "Open Bag End, find the One Ring, then reach the exit gate.";
@@ -2185,6 +2229,18 @@ class Game {
     if (this.moriaGroup) this.moriaGroup.visible = levelId === "moria";
     if (this.lothlorienGroup) this.lothlorienGroup.visible = levelId === "lothlorien";
     if (this.orc && this.orc.root) this.orc.root.visible = levelId === "shire";
+    // Reflective water outside level groups renders a mirror pass — hide it
+    // when its level is inactive so other levels don't pay for it.
+    for (const surface of this.waterSurfaces) {
+      if (surface.userData.level) {
+        surface.visible = surface.userData.level === levelId;
+      }
+    }
+    for (const grass of this.windGrasses) {
+      if (grass.userData.level) {
+        grass.visible = grass.userData.level === levelId;
+      }
+    }
   }
 
   setPlayerOpacity(opacity) {
@@ -2351,8 +2407,56 @@ class Game {
   snapCamera() {
     const target = this.player.root.position;
     const rig = this.getCameraRig(target, 0);
-    this.camera.position.set(rig.x, rig.y, rig.z);
+    _probePos.set(rig.x, rig.y, rig.z);
+    this.clampCameraToColliders(target, rig, _probePos);
+    this.camera.position.copy(_probePos);
     this.camera.lookAt(target.x, rig.lookY, target.z);
+  }
+
+  /**
+   * Pull the camera in along its boom if any collider sits between the look
+   * target and the desired position, so walls never occlude the player.
+   */
+  clampCameraToColliders(target, rig, desired) {
+    const ox = target.x;
+    const oy = rig.lookY;
+    const oz = target.z;
+    const dx = desired.x - ox;
+    const dy = desired.y - oy;
+    const dz = desired.z - oz;
+    let nearestT = 1;
+    for (const collider of this.colliders) {
+      if (!collider.active) continue;
+      // Slab method: entry t of the segment into the AABB (padded slightly)
+      let tMin = 0;
+      let tMax = 1;
+      let valid = true;
+      const pad = 0.18;
+      const axes = [
+        [dx, ox, collider.minX - pad, collider.maxX + pad],
+        [dy, oy, collider.minY - pad, collider.maxY + pad],
+        [dz, oz, collider.minZ - pad, collider.maxZ + pad],
+      ];
+      for (const [d, o, lo, hi] of axes) {
+        if (Math.abs(d) < 1e-8) {
+          if (o < lo || o > hi) { valid = false; break; }
+          continue;
+        }
+        let t1 = (lo - o) / d;
+        let t2 = (hi - o) / d;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tMin = Math.max(tMin, t1);
+        tMax = Math.min(tMax, t2);
+        if (tMin > tMax) { valid = false; break; }
+      }
+      if (valid && tMin > 0.02 && tMin < nearestT) {
+        nearestT = tMin;
+      }
+    }
+    if (nearestT < 1) {
+      const t = Math.max(0.12, nearestT - 0.06);
+      desired.set(ox + dx * t, oy + dy * t, oz + dz * t);
+    }
   }
 
   updateCamera(delta) {
@@ -2360,15 +2464,29 @@ class Game {
     const speed = Math.hypot(this.player.velocity.x, this.player.velocity.z);
     const rig = this.getCameraRig(target, speed);
     _probePos.set(rig.x, rig.y, rig.z);
+    this.clampCameraToColliders(target, rig, _probePos);
 
     const follow = 1 - Math.exp((this.location === "inside" ? -9 : -5.5) * delta);
     this.camera.position.lerp(_probePos, follow);
     this.camera.lookAt(target.x, rig.lookY, target.z);
 
-    if (this.sky) {
-      this.sky.position.copy(this.camera.position);
+    // Speed-sensitive FOV: widen slightly at a sprint for a sense of pace
+    const sprinting = speed > WALK_SPEED + 0.4;
+    const targetFov = this.baseFov + (sprinting ? 7 : 0) + Math.min(speed * 0.35, 2.5);
+    this.camera.fov = damp(this.camera.fov, targetFov, 4.5, delta);
+    this.camera.updateProjectionMatrix();
+
+    // Screen shake from the FX pipeline (trauma-based)
+    if (this.fx.shakeOffset.lengthSq() > 0 || this.fx.shakeRoll !== 0) {
+      this.camera.position.add(this.fx.shakeOffset);
+      this.camera.rotation.z += this.fx.shakeRoll;
     }
+
+    this.atmosphere.follow(this.camera);
     if (this.sun) {
+      // Keep the sun (and its shadow frustum) anchored on the player so
+      // shadows work in every level, not just near the world origin.
+      this.sun.position.copy(target).addScaledVector(this.atmosphere.sunDirection, 55);
       this.sun.target.position.copy(target);
       this.sun.target.updateMatrixWorld();
     }
@@ -2376,9 +2494,21 @@ class Game {
 
   animate() {
     requestAnimationFrame(this.animate);
-    const delta = Math.min(this.clock.getDelta(), 0.05);
+    const realDelta = Math.min(this.clock.getDelta(), 0.05);
+
+    // Hit-stop: freeze the simulation briefly on a solid hit for impact
+    this.hitStop = Math.max(0, this.hitStop - realDelta);
+    const delta = this.hitStop > 0 ? realDelta * 0.12 : realDelta;
 
     this.gameTime += delta;
+
+    // Player is created after async asset loading; render only until then
+    if (!this.player) {
+      this.fx.update(realDelta, this.gameTime);
+      this.fx.render();
+      this.input.endFrame();
+      return;
+    }
     if (this.state === "playing") {
       this.playerDamageCooldown = Math.max(0, this.playerDamageCooldown - delta);
       this.updatePlayer(delta);
@@ -2412,8 +2542,32 @@ class Game {
     }
 
     this.updateDecorations(delta);
-    this.updateCamera(delta);
-    this.renderer.render(this.scene, this.camera);
+    this.updateCamera(realDelta);
+
+    // Environment FX (cheap, always-on)
+    updateWaterSurfaces(this.waterSurfaces, realDelta);
+    for (const grass of this.windGrasses) {
+      if (grass.visible !== false) {
+        grass.userData.windUniforms.uTime.value = this.gameTime;
+      }
+    }
+    for (const field of this.driftFields) {
+      if ((field.userData.level ?? this.levelId) === this.levelId) {
+        updateDriftField(field, realDelta, this.gameTime);
+      }
+    }
+    this.swordTrail.update(realDelta);
+
+    // Low-health heartbeat vignette during combat
+    if (this.levelId === "moria" && this.state === "playing") {
+      const ratio = this.playerHealth / this.playerMaxHealth;
+      this.fx.setLowHealth(ratio < 0.36 ? (0.36 - ratio) / 0.36 : 0);
+    } else {
+      this.fx.setLowHealth(0);
+    }
+
+    this.fx.update(realDelta, this.gameTime);
+    this.fx.render();
     this.input.endFrame();
   }
 }

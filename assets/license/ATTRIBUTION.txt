@@ -6,5 +6,14 @@ Textures:
 License: Creative Commons CC0 1.0 Universal
 https://polyhaven.com/license
 
+=== Kenney Nature Kit (CC0) ===
+Models in assets/nature/ — https://kenney.nl/assets/nature-kit
+License: Creative Commons CC0 1.0 Universal
+
+=== three.js examples (MIT) ===
+assets/textures/waternormals.jpg — from the three.js repository
+Addons used at runtime: Sky, Water, EffectComposer, UnrealBloomPass, FXAA
+https://github.com/mrdoob/three.js/blob/dev/LICENSE
+
 === Characters & architecture ===
 Custom hobbit, orc, hobbit-hole, and trees built for Mordor's Adventures.

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { createReflectiveWater, createFlowingWaterMaterial } from "./water.js";
 
 export const RIVENDELL_ORIGIN = new THREE.Vector3(0, 0, 120);
 
@@ -216,59 +217,70 @@ export function buildRivendellWorld(game, group) {
     level: "rivendell",
   });
 
-  // River
-  const river = ms(new THREE.BoxGeometry(8, 0.15, 40), waterMat(), false, true);
-  river.position.set(-8, 0.02, 0);
+  // River — real planar-reflection water (three.js Water addon)
+  game.rivendellWater = [];
+  const river = createReflectiveWater(new THREE.PlaneGeometry(8, 40), {
+    waterColor: 0x2b5e70,
+    distortionScale: 1.4,
+    size: 4,
+  });
+  river.rotation.x = -Math.PI / 2;
+  river.position.set(-8, 0.1, 0);
   group.add(river);
-  game.rivendellWater = [river];
+  game.waterSurfaces.push(river);
 
-  // Waterfall cliff + sheet
+  // Waterfall cliff + flowing sheets (scrolling normal maps — cheap)
   const cliff = ms(new THREE.BoxGeometry(10, 10, 4), rock);
   cliff.position.set(-8, 5, -18);
   group.add(cliff);
   addCollider(game, -13, -3, 0, 10, -20, -16);
-  const fall = ms(new THREE.PlaneGeometry(4.5, 9), waterMat(), false, false);
+  const fall = ms(new THREE.PlaneGeometry(4.5, 9), createFlowingWaterMaterial({ flowSpeed: 0.85, repeat: [1.6, 3] }), false, false);
   fall.position.set(-8, 4.5, -15.8);
   group.add(fall);
-  game.rivendellWater.push(fall);
+  game.waterSurfaces.push(fall);
 
-  // Layered side cascades and a pool make the falls read from across the valley.
-  const fallLeft = ms(new THREE.PlaneGeometry(1.35, 6.8), waterMat(), false, false);
+  // Layered side cascades and a reflective plunge pool.
+  const fallLeft = ms(new THREE.PlaneGeometry(1.35, 6.8), createFlowingWaterMaterial({ flowSpeed: 1.05, repeat: [0.6, 2.4] }), false, false);
   fallLeft.position.set(-11.1, 3.4, -15.72);
-  const fallRight = ms(new THREE.PlaneGeometry(1.15, 7.4), waterMat(), false, false);
+  const fallRight = ms(new THREE.PlaneGeometry(1.15, 7.4), createFlowingWaterMaterial({ flowSpeed: 0.95, repeat: [0.5, 2.6] }), false, false);
   fallRight.position.set(-4.9, 3.7, -15.72);
-  const pool = ms(new THREE.CircleGeometry(6.2, 32), waterMat(), false, true);
+  const pool = createReflectiveWater(new THREE.CircleGeometry(6.2, 32), {
+    waterColor: 0x27606f,
+    distortionScale: 2.2,
+    size: 5,
+  });
   pool.rotation.x = -Math.PI / 2;
-  pool.position.set(-8, 0.08, -13.1);
+  pool.position.set(-8, 0.14, -13.1);
   group.add(fallLeft, fallRight, pool);
-  game.rivendellWater.push(fallLeft, fallRight, pool);
+  game.waterSurfaces.push(fallLeft, fallRight, pool);
 
   // A smaller garden waterfall feeds the river near the far terrace.
   const gardenRock = ms(new THREE.BoxGeometry(5, 4.4, 2.5), rock);
   gardenRock.position.set(-18, 2.2, 11);
-  const gardenFall = ms(new THREE.PlaneGeometry(2.1, 4), waterMat(), false, false);
+  const gardenFall = ms(new THREE.PlaneGeometry(2.1, 4), createFlowingWaterMaterial({ flowSpeed: 0.8, repeat: [0.8, 2] }), false, false);
   gardenFall.position.set(-18, 2, 9.72);
-  const gardenPool = ms(new THREE.CircleGeometry(3.6, 28), waterMat(), false, true);
+  const gardenPool = ms(new THREE.CircleGeometry(3.6, 28), createFlowingWaterMaterial({ flowSpeed: 0.12, repeat: [3, 3] }), false, true);
   gardenPool.rotation.x = -Math.PI / 2;
   gardenPool.position.set(-18, 0.07, 7.8);
   group.add(gardenRock, gardenFall, gardenPool);
-  game.rivendellWater.push(gardenFall, gardenPool);
+  game.waterSurfaces.push(gardenFall, gardenPool);
   addCollider(game, -20.5, -15.5, 0, 4.4, 9.7, 12.3);
 
-  // Mist spray
+  // Mist spray — small, faint, clustered at the plunge pool
   for (let i = 0; i < 12; i += 1) {
     const puff = ms(
-      new THREE.SphereGeometry(0.35 + Math.random() * 0.3, 8, 8),
+      new THREE.SphereGeometry(0.16 + Math.random() * 0.14, 8, 8),
       new THREE.MeshStandardMaterial({
         color: 0xffffff,
         transparent: true,
-        opacity: 0.25,
+        opacity: 0.12,
         roughness: 1,
+        depthWrite: false,
       }),
       false,
       false
     );
-    puff.position.set(-8 + (Math.random() - 0.5) * 3, 0.6 + Math.random() * 2, -14 + Math.random());
+    puff.position.set(-8 + (Math.random() - 0.5) * 3, 0.5 + Math.random() * 1.4, -14.2 + Math.random());
     group.add(puff);
   }
 

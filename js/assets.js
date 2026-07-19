@@ -91,6 +91,21 @@ export class AssetLibrary {
     return this;
   }
 
+  /** Load a curated set of the bundled Kenney (CC0) nature models. */
+  async loadNatureModels(files = NATURE_FILES) {
+    const results = await Promise.allSettled(
+      files.map(async (file) => {
+        const gltf = await this.gltf.loadAsync(`assets/nature/${file}`);
+        this.templates.set(file.replace(".glb", ""), gltf.scene);
+      })
+    );
+    const failed = results.filter((result) => result.status === "rejected");
+    if (failed.length) {
+      console.warn(`Could not load ${failed.length} nature models`);
+    }
+    return this;
+  }
+
   async loadAll() {
     return this.loadEnv();
   }

@@ -224,6 +224,37 @@ function worldPosition(object, target = new THREE.Vector3()) {
   return object.getWorldPosition(target);
 }
 
+function collectMaterials(model) {
+  const unique = new Set();
+  model.traverse((object) => {
+    if (object.isMesh && object.material) {
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      materials.forEach((material) => unique.add(material));
+    }
+  });
+  return [...unique];
+}
+
+function applyHurtFlash(enemy) {
+  if (!enemy.materials) return;
+  const flashing = enemy.hurtTimer > 0;
+  if (flashing === enemy._flashing) return;
+  enemy._flashing = flashing;
+  for (const material of enemy.materials) {
+    if (material.userData.baseEmissive === undefined) {
+      material.userData.baseEmissive = material.emissive.getHex();
+      material.userData.baseEmissiveIntensity = material.emissiveIntensity;
+    }
+    if (flashing) {
+      material.emissive.setHex(0xff3020);
+      material.emissiveIntensity = 0.9;
+    } else {
+      material.emissive.setHex(material.userData.baseEmissive);
+      material.emissiveIntensity = material.userData.baseEmissiveIntensity;
+    }
+  }
+}
+
 function nearestLiving(enemies, from, maxDistance = Infinity) {
   let nearest = null;
   let nearestDistance = maxDistance;
@@ -272,6 +303,9 @@ export function buildMoriaLevel(game) {
       attackCooldown: 0.5 + Math.random(),
       hurtTimer: 0,
       speed: 1.65 + (index % 3) * 0.15,
+      materials: collectMaterials(orc.model),
+      knockback: null,
+      dying: 0,
     };
   });
 
@@ -319,6 +353,9 @@ export function buildMoriaLevel(game) {
     attackCooldown: 1.5,
     hurtTimer: 0,
     speed: 2.6,
+    materials: collectMaterials(balrogBody.model),
+    knockback: null,
+    dying: 0,
   };
   game.moriaEnemies = [...game.moriaOrcs, game.balrog];
   return group;
@@ -328,15 +365,21 @@ export function resetMoriaLevel(game) {
   for (const orc of game.moriaOrcs || []) {
     orc.root.position.copy(orc.spawn);
     orc.root.rotation.set(0, 0, 0);
+    orc.model.rotation.set(0, 0, 0);
     orc.root.visible = true;
     orc.hp = orc.maxHp;
     orc.alive = true;
     orc.attackCooldown = 0.5 + Math.random();
     orc.hurtTimer = 0;
+    orc.knockback = null;
+    orc.dying = 0;
+    orc._flashing = undefined;
+    applyHurtFlash(orc);
   }
   if (game.balrog) {
     game.balrog.root.position.set(0, 0, 104);
     game.balrog.root.rotation.set(0, 0, 0);
+    game.balrog.model.rotation.set(0, 0, 0);
     game.balrog.root.visible = true;
     game.balrog.hp = game.balrog.maxHp;
     game.balrog.alive = true;
@@ -344,6 +387,10 @@ export function resetMoriaLevel(game) {
     game.balrog.marching = false;
     game.balrog.moving = false;
     game.balrog.attackCooldown = 1.5;
+    game.balrog.knockback = null;
+    game.balrog.dying = 0;
+    game.balrog._flashing = undefined;
+    applyHurtFlash(game.balrog);
   }
   for (const ally of game.moriaAllies || []) {
     ally.root.position.copy(ally.spawn);
@@ -359,21 +406,49 @@ export function damageMoriaEnemy(game, enemy, damage) {
   enemy.hurtTimer = 0.18;
   if (enemy.hp <= 0) {
     enemy.alive = false;
-    enemy.root.visible = false;
+    // Play out a fall + sink death instead of vanishing instantly
+    enemy.dying = enemy.kind === "balrog" ? 2.6 : 1.35;
+    game.sfx?.enemyDeath?.();
     if (enemy.kind === "balrog") {
-      game.completeMoria?.();
+      game.sfx?.balrogRoar?.();
+      game.fx?.addTrauma?.(0.85);
+      window.setTimeout(() => game.completeMoria?.(), 1900);
     }
   }
   game.refreshMoriaHud?.();
   return true;
 }
 
+function updateDyingEnemies(game, delta) {
+  const all = [...(game.moriaOrcs || []), game.balrog].filter(Boolean);
+  for (const enemy of all) {
+    if (enemy.alive || !enemy.dying || !enemy.root.visible) continue;
+    enemy.dying -= delta;
+    const total = enemy.kind === "balrog" ? 2.6 : 1.35;
+    const t = 1 - enemy.dying / total;
+    const fallPhase = Math.min(t / 0.35, 1);
+    enemy.model.rotation.x = -Math.PI / 2 * fallPhase * fallPhase;
+    if (t > 0.5) {
+      const sink = (t - 0.5) / 0.5;
+      enemy.root.position.y -= delta * (enemy.kind === "balrog" ? 2.6 : 1.1) * sink;
+    }
+    if (enemy.dying <= 0) {
+      enemy.root.visible = false;
+      enemy.model.rotation.x = 0;
+      enemy.dying = 0;
+    }
+  }
+}
+
 export function updateMoriaActors(game, delta, time) {
   const playerPos = game.player.root.position;
+  updateDyingEnemies(game, delta);
   const allOrcsDefeated = (game.moriaOrcs || []).every((orc) => !orc.alive);
   if (allOrcsDefeated && game.balrog?.alive && !game.balrog.active) {
     game.balrog.active = true;
     game.balrog.marching = true;
+    game.sfx?.balrogRoar?.();
+    game.fx?.addTrauma?.(0.7);
     game.showGameMessage?.("Durin's Bane strides across the bridge into the great hall!", 3600);
     game.refreshMoriaHud?.();
   }
@@ -387,6 +462,16 @@ export function updateMoriaActors(game, delta, time) {
     enemy.attackCooldown -= delta;
     enemy.hurtTimer = Math.max(0, enemy.hurtTimer - delta);
     enemy.model.rotation.z = enemy.hurtTimer > 0 ? Math.sin(time * 45) * 0.12 : 0;
+    applyHurtFlash(enemy);
+
+    // Sword knockback impulse, decaying quickly
+    if (enemy.knockback) {
+      enemy.root.position.addScaledVector(enemy.knockback, delta);
+      enemy.knockback.multiplyScalar(Math.exp(-7 * delta));
+      if (enemy.knockback.lengthSq() < 0.04) {
+        enemy.knockback = null;
+      }
+    }
 
     const toPlayer = playerPos.clone().sub(enemyPos);
     toPlayer.y = 0;
@@ -411,6 +496,9 @@ export function updateMoriaActors(game, delta, time) {
       enemy.moving = true;
     } else if (distance <= attackRange && enemy.attackCooldown <= 0) {
       game.takePlayerDamage?.(enemy.kind === "balrog" ? 24 : 8, enemy.name || "Orc");
+      if (enemy.kind === "balrog") {
+        game.sfx?.whipCrack?.();
+      }
       enemy.attackCooldown = enemy.kind === "balrog" ? 2.2 : 1.25 + Math.random() * 0.5;
     }
     enemy.root.position.y = game.getGroundHeight(

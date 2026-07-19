@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { createDriftField, createLightShaft } from "./vegetation.js";
 
 export const MORIA_ORIGIN = new THREE.Vector3(0, 0, 300);
 
@@ -213,6 +214,33 @@ export function buildMoriaWorld(game, group) {
       -55 + Math.random() * 170,
       1.2 + Math.random() * 2.5
     );
+  }
+
+  // Dust motes hanging in the dark air of the Dwarrowdelf.
+  const dust = createDriftField({
+    count: 320,
+    bounds: { minX: -24, maxX: 24, minY: 0.5, maxY: 16, minZ: -55, maxZ: 110 },
+    color: 0xc9b899,
+    size: 0.05,
+    opacity: 0.4,
+    fallSpeed: 0.05,
+    driftSpeed: 0.16,
+  });
+  dust.userData.level = "moria";
+  group.add(dust);
+  game.driftFields.push(dust);
+
+  // Pale shafts of light falling from unseen crevices high above.
+  for (const [x, z, height] of [[-12, -8, 21], [8, 20, 21], [-4, 44, 21]]) {
+    const shaft = createLightShaft({
+      radiusTop: 0.7,
+      radiusBottom: 4.2,
+      height,
+      color: 0x9fb8d8,
+      opacity: 0.045,
+    });
+    shaft.position.set(x, height / 2, z);
+    group.add(shaft);
   }
 
   group.position.copy(MORIA_ORIGIN);

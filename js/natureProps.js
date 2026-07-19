@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { createWindGrass } from "./vegetation.js";
+import { fitModel } from "./assets.js";
 
 function loadTex(loader, path, { color = true, repeat = 2 } = {}) {
   return loader.loadAsync(path).then((t) => {
@@ -112,41 +114,77 @@ export function decorateRealisticWorld(game, tex) {
     addTree((rng() > 0.5 ? 1 : -1) * (13 + rng() * 8), -2 + rng() * 24);
   }
 
-  // Soft grass tufts (simple crossed planes)
-  const grassMat = new THREE.MeshStandardMaterial({
-    map: tex.grassMap || tex.leavesMap,
-    normalMap: tex.grassNor || undefined,
-    color: 0x6faa4f,
-    roughness: 0.9,
-    metalness: 0,
-    side: THREE.DoubleSide,
-    transparent: true,
-    alphaTest: 0.35,
+  // Dense instanced grass with wind sway — one draw call for the whole meadow
+  const meadow = createWindGrass({
+    count: 5200,
+    color: 0x5f9a3e,
+    tipColor: 0xa4c860,
+    windStrength: 0.22,
+    placer: () => {
+      const x = -24 + rng() * 48;
+      const z = -16 + rng() * 42;
+      if (Math.abs(x) < 1.8 && z > 0 && z < 18) return null; // main path
+      if (Math.abs(x) < 7 && z > -12 && z < -3) return null; // Bag End yard
+      if (Math.hypot(x - 14, z - 16) < 3.4) return null; // pond
+      return { x, y: 0, z };
+    },
   });
-  for (let i = 0; i < 420; i += 1) {
-    const x = -24 + rng() * 48;
-    const z = -16 + rng() * 42;
-    if (Math.abs(x) < 1.8 && z > 0 && z < 18) {
-      continue;
+  meadow.userData.level = "shire";
+  game.scene.add(meadow);
+  game.windGrasses.push(meadow);
+
+  // Scatter bundled Kenney (CC0) nature models for close-up detail
+  if (game.assets?.has?.("rock_largeA")) {
+    scatterKenneyProps(game, rng);
+  }
+}
+
+const KENNEY_SCATTER = [
+  { keys: ["rock_largeA", "rock_largeB"], count: 6, height: 1.1, collide: 0.55 },
+  { keys: ["rock_smallA", "rock_smallB", "rock_smallE", "stone_smallA", "stone_smallB"], count: 16, height: 0.42, collide: 0 },
+  { keys: ["mushroom_red", "mushroom_redGroup", "mushroom_tan"], count: 12, height: 0.3, collide: 0 },
+  { keys: ["flower_purpleA", "flower_redA", "flower_yellowA", "flower_purpleB", "flower_redB", "flower_yellowB"], count: 26, height: 0.36, collide: 0 },
+  { keys: ["plant_bush", "plant_bushDetailed", "plant_bushLarge"], count: 10, height: 0.75, collide: 0.35 },
+];
+
+function scatterKenneyProps(game, rng) {
+  const isBlocked = (x, z) =>
+    (Math.abs(x) < 2.6 && z > -1 && z < 20) ||
+    (Math.abs(x) < 8 && z > -13 && z < -2) ||
+    Math.hypot(x - 14, z - 16) < 3.8;
+
+  for (const spec of KENNEY_SCATTER) {
+    for (let i = 0; i < spec.count; i += 1) {
+      let x = 0;
+      let z = 0;
+      let tries = 0;
+      do {
+        x = -23 + rng() * 46;
+        z = -15 + rng() * 40;
+        tries += 1;
+      } while (isBlocked(x, z) && tries < 12);
+      if (isBlocked(x, z)) continue;
+
+      const key = spec.keys[Math.floor(rng() * spec.keys.length)];
+      if (!game.assets.has(key)) continue;
+      const model = game.assets.clone(key);
+      fitModel(model, spec.height * (0.8 + rng() * 0.5));
+      model.position.x = x;
+      model.position.z = z;
+      model.rotation.y = rng() * Math.PI * 2;
+      game.scene.add(model);
+      if (spec.collide > 0) {
+        game.colliders.push({
+          minX: x - spec.collide,
+          maxX: x + spec.collide,
+          minY: 0,
+          maxY: 1.6,
+          minZ: z - spec.collide,
+          maxZ: z + spec.collide,
+          active: true,
+          level: "shire",
+        });
+      }
     }
-    if (Math.abs(x) < 7 && z > -12 && z < -3) {
-      continue;
-    }
-    if (Math.hypot(x - 14, z - 16) < 3.4) {
-      continue;
-    }
-    const tuft = new THREE.Group();
-    for (let p = 0; p < 2; p += 1) {
-      const blade = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.45), grassMat);
-      blade.rotation.y = p * Math.PI / 2;
-      blade.position.y = 0.22;
-      blade.castShadow = true;
-      tuft.add(blade);
-    }
-    tuft.position.set(x, 0, z);
-    tuft.rotation.y = rng() * Math.PI;
-    const scale = 0.75 + rng() * 0.75;
-    tuft.scale.set(scale, scale, scale);
-    game.scene.add(tuft);
   }
 }
