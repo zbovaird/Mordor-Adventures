@@ -1,0 +1,10 @@
+=== Poly Haven (CC0) ===
+HDRI: meadow_2 — https://polyhaven.com/a/meadow_2
+Textures:
+  grass_path_2, wood_cabinet_worn_long, rock_wall_02,
+  brown_mud_leaves_01, plastered_wall_04, bark_brown_02, forest_leaves_03
+License: Creative Commons CC0 1.0 Universal
+https://polyhaven.com/license
+
+=== Characters & architecture ===
+Custom hobbit, orc, hobbit-hole, and trees built for Mordor's Adventures.

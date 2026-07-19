@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Mordor's Adventures</title>
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <div id="ui">
+      <header>
+        <h1>Mordor's Adventures</h1>
+        <p class="subtitle">Frodo's Shire Quest</p>
+      </header>
+      <div id="hud">
+        <p id="objective">Open Bag End, find the golden acorn, then reach the exit gate.</p>
+        <p id="status">Acorn: not found</p>
+      </div>
+      <button id="reset-btn" class="hidden" type="button">Reset Game</button>
+      <div id="controls-help" class="hidden">
+        <p><strong>Move</strong> WASD / Arrows · <strong>Look</strong> Mouse · <strong>Run</strong> Shift · <strong>Jump</strong> Space</p>
+        <p><strong>Open door</strong> E · <strong>Sword attack</strong> F · <strong>Reset</strong> R</p>
+        <p class="hint">Click the game to capture the mouse. Esc releases it.</p>
+      </div>
+      <div id="message" class="hidden"></div>
+      <div id="fade" class="hidden"></div>
+      <div id="loading">
+        <p>Loading free 3D world…</p>
+        <div class="bar"><span id="loading-bar"></span></div>
+        <p id="loading-pct">0%</p>
+        <p class="hint">Poly Haven textures (CC0) · custom hobbit &amp; Shire</p>
+      </div>
+      <button id="start-btn" class="hidden" type="button">Start Adventure</button>
+      <div id="win-screen" class="hidden">
+        <h2>You did it, Frodo!</h2>
+        <p>You found the golden acorn and made it home safely.</p>
+        <button id="restart-btn" type="button">Play Again</button>
+      </div>
+    </div>
+    <canvas id="game"></canvas>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

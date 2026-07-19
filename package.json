@@ -1,0 +1,10 @@
+{
+  "name": "mordors-adventures",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A kid-friendly Shire adventure prototype starring Frodo",
+  "scripts": {
+    "start": "npx --yes serve . -p 4173",
+    "dev": "npm run start"
+  }
+}
