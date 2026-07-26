@@ -8,11 +8,16 @@ import * as THREE from "three";
 export function createWindGrass({
   count = 3000,
   placer,
-  bladeWidth = 0.09,
-  bladeHeight = 0.55,
+  bladeWidth = 0.06,
+  bladeHeight = 0.28,
   color = 0x5f9a3e,
   tipColor = 0x9cc25e,
   windStrength = 0.24,
+  /** Uniform scale range for each blade instance (width/depth). */
+  scaleMin = 0.7,
+  scaleMax = 1.15,
+  /** Extra Y scale jitter so blades aren't a flat carpet. */
+  heightJitter = 0.35,
 } = {}) {
   const geometry = new THREE.PlaneGeometry(bladeWidth, bladeHeight, 1, 3);
   geometry.translate(0, bladeHeight / 2, 0);
@@ -62,6 +67,7 @@ export function createWindGrass({
 
   const phases = new Float32Array(count);
   const dummy = new THREE.Object3D();
+  const scaleSpan = Math.max(0, scaleMax - scaleMin);
   let placed = 0;
   let attempts = 0;
   while (placed < count && attempts < count * 6) {
@@ -70,8 +76,9 @@ export function createWindGrass({
     if (!spot) continue;
     dummy.position.set(spot.x, spot.y ?? 0, spot.z);
     dummy.rotation.y = Math.random() * Math.PI;
-    const s = 0.6 + Math.random() * 0.85;
-    dummy.scale.set(s, s * (0.75 + Math.random() * 0.5), s);
+    const s = scaleMin + Math.random() * scaleSpan;
+    const yScale = s * (1 - heightJitter * 0.5 + Math.random() * heightJitter);
+    dummy.scale.set(s, yScale, s);
     dummy.updateMatrix();
     instanced.setMatrixAt(placed, dummy.matrix);
     phases[placed] = Math.random() * Math.PI * 2;

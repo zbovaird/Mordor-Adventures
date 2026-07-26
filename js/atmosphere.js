@@ -57,6 +57,20 @@ const PRESETS = {
     sunColor: 0xffe9b0,
     hemi: 0.5,
   },
+  anduin: {
+    sky: true,
+    elevation: 28,
+    azimuth: 130,
+    turbidity: 4,
+    rayleigh: 1.5,
+    mieCoefficient: 0.005,
+    mieDirectionalG: 0.78,
+    fog: { color: 0xc5d8d2, density: 0.0038 },
+    exposure: 0.58,
+    sunIntensity: 2.2,
+    sunColor: 0xfff0d0,
+    hemi: 0.62,
+  },
 };
 
 export class Atmosphere {

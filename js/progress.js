@@ -8,15 +8,17 @@ export function loadProgress() {
         level1Complete: false,
         level3Complete: false,
         level4Complete: false,
+        level5Complete: false,
         currentLevel: "shire",
       };
     }
     const data = JSON.parse(raw);
-    const validLevels = new Set(["shire", "rivendell", "moria", "lothlorien"]);
+    const validLevels = new Set(["shire", "rivendell", "moria", "lothlorien", "anduin"]);
     return {
       level1Complete: Boolean(data.level1Complete),
       level3Complete: Boolean(data.level3Complete),
       level4Complete: Boolean(data.level4Complete),
+      level5Complete: Boolean(data.level5Complete),
       currentLevel: validLevels.has(data.currentLevel) ? data.currentLevel : "shire",
     };
   } catch {
@@ -24,6 +26,7 @@ export function loadProgress() {
       level1Complete: false,
       level3Complete: false,
       level4Complete: false,
+      level5Complete: false,
       currentLevel: "shire",
     };
   }
@@ -45,4 +48,8 @@ export function markLevel3Complete() {
 
 export function markLevel4Complete() {
   return saveProgress({ level4Complete: true });
+}
+
+export function markLevel5Complete() {
+  return saveProgress({ level5Complete: true });
 }

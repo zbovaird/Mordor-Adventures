@@ -61,10 +61,10 @@ function grassMat(tex) {
   return new THREE.MeshStandardMaterial({
     map: m,
     normalMap: n,
-    color: 0xb8e08a,
-    roughness: 0.92,
+    color: 0xa8d86a,
+    roughness: 0.88,
     metalness: 0.0,
-    envMapIntensity: 0.45,
+    envMapIntensity: 0.4,
   });
 }
 

@@ -408,7 +408,8 @@ header h1 {
 #level-shire-btn,
 #level-rivendell-btn,
 #level-moria-btn,
-#level-lothlorien-btn {
+#level-lothlorien-btn,
+#level-anduin-btn {
   border: none;
   border-radius: 999px;
   padding: 14px 22px;
@@ -432,9 +433,14 @@ header h1 {
   background: linear-gradient(180deg, #b59b43, #667c3f);
 }
 
+#level-anduin-btn:not(:disabled) {
+  background: linear-gradient(180deg, #4f8fa8, #2f5f6e);
+}
+
 #level-shire-btn:hover,
 #level-rivendell-btn:not(:disabled):hover,
 #level-moria-btn:hover,
-#level-lothlorien-btn:not(:disabled):hover {
+#level-lothlorien-btn:not(:disabled):hover,
+#level-anduin-btn:not(:disabled):hover {
   filter: brightness(1.05);
 }

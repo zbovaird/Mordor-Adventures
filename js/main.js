@@ -28,6 +28,17 @@ import {
   updateLothlorienLevel,
   lothlorienSpawn,
 } from "./levels/lothlorien.js";
+import {
+  buildAnduinLevel,
+  resetAnduinQuest,
+  nearestAnduinNpc,
+  trySeatOfSeeing,
+  tryLandBoat,
+  nearAnduinDock,
+  updateAnduinBoat,
+  updateAnduinLevel,
+  anduinSpawn,
+} from "./levels/anduin.js";
 import { nearestNpc, updateNpcIdle, TALK_RANGE } from "./npcs.js";
 import {
   loadProgress,
@@ -35,6 +46,7 @@ import {
   markLevel1Complete,
   markLevel3Complete,
   markLevel4Complete,
+  markLevel5Complete,
 } from "./progress.js";
 import {
   createEnvMap,
@@ -109,6 +121,7 @@ const ui = {
   levelRivendellBtn: document.getElementById("level-rivendell-btn"),
   levelMoriaBtn: document.getElementById("level-moria-btn"),
   levelLothlorienBtn: document.getElementById("level-lothlorien-btn"),
+  levelAnduinBtn: document.getElementById("level-anduin-btn"),
   levelSelectBtn: document.getElementById("level-select-btn"),
   levelSubtitle: document.getElementById("level-subtitle"),
   loading: document.getElementById("loading"),
@@ -258,6 +271,8 @@ class Game {
     this.ringInvisible = false;
     this.ringInvisTimer = 0;
     this.ringCooldownTimer = 0;
+    this.ringAnim = 0;
+    this.ringFade = 1;
     this.progress = loadProgress();
     this.npcs = [];
     this.rivendellBuilt = false;
@@ -271,6 +286,13 @@ class Game {
     this.lothlorienCompanions = [];
     this.lothlorienGiftGroups = [];
     this.lothlorienQuest = null;
+    this.anduinBuilt = false;
+    this.anduinNpcs = [];
+    this.anduinBoats = [];
+    this.anduinCompanions = [];
+    this.anduinQuest = null;
+    this.vehicleMode = null;
+    this.anduinHitCooldown = 0;
     this.playerMaxHealth = 100;
     this.playerHealth = 100;
     this.playerDamageCooldown = 0;
@@ -410,13 +432,101 @@ class Game {
     // Direct level launch for testing: index.html?level=moria
     const params = new URLSearchParams(window.location.search);
     const requested = params.get("level");
-    if (["shire", "rivendell", "moria", "lothlorien"].includes(requested)) {
+    if (["shire", "rivendell", "moria", "lothlorien", "anduin"].includes(requested)) {
       this.selectLevel(requested, { force: true }).then(() => {
         if (params.has("walktest")) {
           this.runWalkTest();
         }
+        if (params.has("boattest")) {
+          this.runBoatTest();
+        }
       });
     }
+  }
+
+  /**
+   * Debug boat voyage (?level=anduin&boattest): auto-steers downriver to
+   * Parth Galen, then walks to the Seat of Seeing using real systems.
+   */
+  runBoatTest() {
+    if (this.levelId !== "anduin") {
+      console.log("BOATTEST: only implemented for anduin");
+      return;
+    }
+    const originZ = 720;
+    const originalGet = this.input.getMoveInput.bind(this.input);
+    let landed = false;
+    for (let i = 0; i < 5000; i += 1) {
+      if (this.vehicleMode !== "boat" || !this.anduinPlayerBoat) {
+        landed = true;
+        break;
+      }
+      const boat = this.anduinPlayerBoat;
+      const localZ = boat.root.position.z - originZ;
+      this.input.getMoveInput = () => ({
+        forward: 1,
+        // A (right=-1) yaws toward -X / west shore once past the Argonath
+        right: localZ > 65 ? -1 : (Math.abs(boat.root.position.x) > 2.5 ? -Math.sign(boat.root.position.x) * 0.5 : 0),
+        run: true,
+      });
+      updateAnduinBoat(this, 1 / 30);
+    }
+    this.input.getMoveInput = originalGet;
+
+    if (!landed && this.vehicleMode === "boat") {
+      const boat = this.anduinPlayerBoat;
+      console.log(
+        `BOATTEST FAIL: still afloat at x=${boat.root.position.x.toFixed(1)} z=${(boat.root.position.z - originZ).toFixed(1)}`
+      );
+      return;
+    }
+
+    // Skip Boromir chase in automated pathing
+    if (this.anduinQuest) {
+      this.anduinQuest.boromirEscaped = true;
+      this.anduinQuest.boromirActive = false;
+    }
+
+    const seat = this.anduinSeatPoint;
+    if (!seat) {
+      console.log("BOATTEST FAIL: no seat point");
+      return;
+    }
+    // Follow the stone ramp waypoints instead of a straight line through rails/hill
+    const route = [
+      [-14, 86], [-20, 86], [-20, 95],
+      [-28, 95], [-28, 104],
+      [-34, 108],
+    ];
+    const pos = this.player.root.position;
+    for (const [lx, lz] of route) {
+      const tx = lx;
+      const tz = originZ + lz;
+      let guard = 0;
+      let lastDist = Infinity;
+      let stuck = 0;
+      while (guard++ < 4000) {
+        const dx = tx - pos.x;
+        const dz = tz - pos.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 0.25) break;
+        const stepLen = Math.min(0.07, dist);
+        const dummyVel = { x: 0, z: 0 };
+        moveWithCollisions(pos, dummyVel, this.colliders, (dx / dist) * stepLen, (dz / dist) * stepLen);
+        pos.y = this.getGroundHeight(pos.x, pos.z);
+        if (dist >= lastDist - 1e-6) {
+          stuck += 1;
+          if (stuck > 80) break;
+        } else stuck = 0;
+        lastDist = dist;
+      }
+    }
+    if (Math.hypot(seat.x - pos.x, seat.z - pos.z) > 2.5) {
+      console.log(`BOATTEST FAIL: could not reach seat (at ${pos.x.toFixed(1)}, ${(pos.z - originZ).toFixed(1)})`);
+      return;
+    }
+    const ok = trySeatOfSeeing(this);
+    console.log(ok ? "BOATTEST PASS: landed and Seat of Seeing triggered" : "BOATTEST FAIL: seat interact failed");
   }
 
   /**
@@ -431,9 +541,9 @@ class Game {
     }
     const originZ = 520;
     const route = [
-      [0, -47], [0, -30], [0, -18], [0, -12], [0, -6], [0, -2.5], // entry path + stairs 1
+      [0, -47], [0, -30], [0, -18], [0, -12], [0, -6], [0, -2.5], // entry path + ramp 1
       [0, 0], [0, 7], [0, 14], [0, 16.5],                          // central bridge
-      [0, 19], [0, 22], [0, 26], [0, 30], [0, 33.5],               // junction + stairs 2
+      [0, 19], [0, 22], [0, 26], [0, 30], [0, 33.5],               // junction + ramp 2
       [0, 36], [1.9, 39], [1.6, 42], [0, 44.2],                    // around the great mallorn to Galadriel
       [-3.8, 41.5],                                                 // fountain
       [-9, 43], [-16, 43],                                          // west cross bridge + treehouse
@@ -541,10 +651,11 @@ class Game {
       material = new THREE.MeshStandardMaterial({
         map,
         normalMap: normalMap || null,
-        color: 0xffffff,
-        roughness: 0.92,
+        // Warm lawn tint so the ground reads as Shire turf, not bare dirt
+        color: 0xb6e07a,
+        roughness: 0.9,
         metalness: 0,
-        envMapIntensity: 0.5,
+        envMapIntensity: 0.45,
       });
     } else {
       material = mat(color, { map: this.woodMap, roughness: 0.88, metalness: 0.05, envMapIntensity: 0.5 });
@@ -572,9 +683,10 @@ class Game {
   }
 
   addHill(w, h, d, x, z) {
-    const hillMat = mat(0xffffff, {
+    const hillMat = mat(0xb6e07a, {
       map: this.grassMap,
-      roughness: 0.93,
+      normalMap: this.grassNor || null,
+      roughness: 0.9,
       metalness: 0,
       envMapIntensity: 0.4,
     });
@@ -784,9 +896,10 @@ class Game {
   }
 
   buildHobbitHole() {
-    const moundMat = mat(0xffffff, {
+    const moundMat = mat(0xb6e07a, {
       map: this.grassMap,
-      roughness: 0.93,
+      normalMap: this.grassNor || null,
+      roughness: 0.9,
       metalness: 0,
       envMapIntensity: 0.4,
     });
@@ -1000,6 +1113,7 @@ class Game {
     ui.levelRivendellBtn.addEventListener("click", () => this.selectLevel("rivendell"));
     ui.levelMoriaBtn.addEventListener("click", () => this.selectLevel("moria"));
     ui.levelLothlorienBtn.addEventListener("click", () => this.selectLevel("lothlorien"));
+    ui.levelAnduinBtn?.addEventListener("click", () => this.selectLevel("anduin"));
     ui.levelSelectBtn.addEventListener("click", () => this.openLevelSelectFromMenu());
   }
 
@@ -1038,6 +1152,29 @@ class Game {
     this.clearInvisibility(true);
     this.ringCooldownTimer = 0;
     this.state = "playing";
+    if (this.levelId === "anduin") {
+      resetAnduinQuest(this);
+      this.hasRing = true;
+      this.player.root.position.copy(this.anduinBoatSpawn || anduinSpawn());
+      this.player.root.rotation.set(0, 0, 0);
+      this.player.velocity.set(0, 0, 0);
+      this.player.model.rotation.set(0.08, 0, 0);
+      this.player.model.position.set(0, 0, 0);
+      this.cameraYaw = 0;
+      this.cameraPitch = 0.22;
+      this.setAnduinQuestStage(0);
+      this.syncRingButton();
+      ui.winScreen.classList.add("hidden");
+      ui.levelSelect.classList.add("hidden");
+      ui.controlsHelp.classList.remove("hidden");
+      ui.resetBtn.classList.remove("hidden");
+      this.input.enable();
+      this.focusGame();
+      this.input.requestPointerLock(this.canvas);
+      showMessage("Anduin voyage reset. Steer the boat downriver to Parth Galen.", 2200);
+      this.snapCamera();
+      return;
+    }
     if (this.levelId === "lothlorien") {
       resetLothlorienQuest(this);
       this.player.root.position.copy(this.lothlorienSpawn || lothlorienSpawn());
@@ -1214,7 +1351,18 @@ class Game {
         continue;
       }
       if (x >= patch.minX && x <= patch.maxX && z >= patch.minZ && z <= patch.maxZ) {
-        height = Math.max(height, patch.height);
+        let patchHeight = patch.height ?? 0;
+        if (patch.heightStart != null && patch.heightEnd != null) {
+          const span =
+            patch.rampAxis === "x"
+              ? patch.maxX - patch.minX
+              : patch.maxZ - patch.minZ;
+          const along =
+            patch.rampAxis === "x" ? x - patch.minX : z - patch.minZ;
+          const t = span > 0 ? THREE.MathUtils.clamp(along / span, 0, 1) : 0;
+          patchHeight = THREE.MathUtils.lerp(patch.heightStart, patch.heightEnd, t);
+        }
+        height = Math.max(height, patchHeight);
         found = true;
       }
     }
@@ -1464,6 +1612,10 @@ class Game {
       this.tryTalk();
     } else if (action.type === "galadriel") {
       tryGaladrielInteraction(this);
+    } else if (action.type === "seat") {
+      trySeatOfSeeing(this);
+    } else if (action.type === "land") {
+      tryLandBoat(this);
     } else if (action.type === "door") {
       const door = action.door;
       door.open = true;
@@ -1485,6 +1637,17 @@ class Game {
     if (!this.player) return null;
     if (this.lyingDown) {
       return { type: "get-up", label: "Get up from bed" };
+    }
+    if (this.levelId === "anduin") {
+      if (this.vehicleMode === "boat") {
+        if (nearAnduinDock(this)) {
+          return { type: "land", label: "Step ashore at the dock" };
+        }
+        return null;
+      }
+      const npc = nearestAnduinNpc(this);
+      if (!npc || this.anduinQuest?.seatSeen) return null;
+      return { type: "seat", label: "Sit upon the Seat of Seeing", npc };
     }
     if (this.levelId === "lothlorien") {
       const npc = nearestLothlorienNpc(this);
@@ -1634,7 +1797,48 @@ class Game {
     this.sfx.win();
   }
 
+  setAnduinQuestStage(stage) {
+    if (stage === 0) {
+      ui.objective.textContent = "Sail to the west dock (← → steer). Press E to step ashore.";
+      ui.status.textContent = "Voyage: under way";
+    } else if (stage === 1) {
+      ui.objective.textContent = "Climb the walkway. Boromir waits ahead — keep the Ring close.";
+      ui.status.textContent = "Landed at Parth Galen";
+    } else if (stage === 2) {
+      ui.objective.textContent = "Boromir tries to take the Ring! Press Q to turn invisible and escape.";
+      ui.status.textContent = "Confrontation!";
+    } else if (stage === 3) {
+      ui.objective.textContent = "You escaped Boromir. Climb Amon Hen to the Seat of Seeing.";
+      ui.status.textContent = "Ring: used — path is clear";
+    } else {
+      ui.objective.textContent = "The visions fade. The road ahead is clear.";
+      ui.status.textContent = "Seat of Seeing: witnessed";
+    }
+    this.updateActionUi();
+  }
+
+  completeAnduin() {
+    if (this.won) return;
+    this.won = true;
+    this.state = "won";
+    this.vehicleMode = null;
+    this.clearInvisibility(true);
+    this.input.disable();
+    markLevel5Complete();
+    this.refreshLevelSelectUi();
+    ui.winTitle.textContent = "The Breaking of the Fellowship";
+    ui.winText.textContent =
+      "You escaped Boromir's grasp and saw the wide world from the Seat of Seeing. The Fellowship is broken — but the quest goes on.";
+    ui.restartBtn.textContent = "Choose Level";
+    ui.winScreen.classList.remove("hidden");
+    ui.controlsHelp.classList.add("hidden");
+    ui.actionsMenu.classList.add("hidden");
+    ui.ringBtn.classList.add("hidden");
+    this.sfx.win();
+  }
+
   tryAttack() {
+    if (this.vehicleMode === "boat") return;
     if (this.attackCooldown > 0 || this.attackActive) {
       return;
     }
@@ -1910,6 +2114,14 @@ class Game {
       return;
     }
 
+    // Boat voyage: steering handled in updateAnduinBoat — skip foot physics.
+    if (this.vehicleMode === "boat" && this.levelId === "anduin") {
+      this.applyMouseLook();
+      if (this.input.wasPressed("KeyE")) this.tryInteract();
+      if (this.input.wasPressed("KeyR")) this.reset();
+      return;
+    }
+
     this.applyMouseLook();
     const { forward, right, run } = this.input.getMoveInput();
     const desired = this.getCameraRelativeMove(forward, right);
@@ -2119,6 +2331,12 @@ class Game {
     ui.levelLothlorienBtn.textContent = this.progress.level3Complete
       ? "Level 4 — Lothlórien"
       : "Level 4 — Lothlórien (test)";
+    if (ui.levelAnduinBtn) {
+      ui.levelAnduinBtn.disabled = false;
+      ui.levelAnduinBtn.textContent = this.progress.level4Complete
+        ? "Level 5 — Anduin / Amon Hen"
+        : "Level 5 — Anduin / Amon Hen (test)";
+    }
   }
 
   showLevelSelect() {
@@ -2166,6 +2384,7 @@ class Game {
     saveProgress({ currentLevel: levelId });
     this.won = false;
     this.lyingDown = false;
+    this.vehicleMode = null;
     this.clearInvisibility(true);
     this.hasRing = false;
     ui.restartBtn.textContent = "Continue";
@@ -2173,7 +2392,29 @@ class Game {
     ui.combatHud.classList.add("hidden");
     ui.winScreen.classList.add("hidden");
 
-    if (levelId === "lothlorien") {
+    if (levelId === "anduin") {
+      buildAnduinLevel(this);
+      this.anduinBuilt = true;
+      resetAnduinQuest(this);
+      this.applyLevelActivation("anduin");
+      this.player.root.position.copy(this.anduinBoatSpawn || anduinSpawn());
+      this.player.root.rotation.set(0, 0, 0);
+      this.player.velocity.set(0, 0, 0);
+      this.cameraYaw = 0;
+      this.cameraPitch = 0.22;
+      this.location = "anduin";
+      this.hasRing = true;
+      this.ringCooldownTimer = 0;
+      this.clearInvisibility(true);
+      this.atmosphere.apply("anduin", { sun: this.sun, hemi: this.hemi });
+      this.fx.setBloom(0.4, 0.48, 0.88);
+      this.sfx.startAmbience("anduin");
+      ui.levelSubtitle.textContent = "Level 5 — The Great River";
+      ui.combatHud.classList.add("hidden");
+      this.syncRingButton();
+      this.setAnduinQuestStage(0);
+      showMessage("Sail to the wooden dock on the west bank, then press E to step ashore.", 4000);
+    } else if (levelId === "lothlorien") {
       buildLothlorienLevel(this);
       this.lothlorienBuilt = true;
       resetLothlorienQuest(this);
@@ -2191,7 +2432,7 @@ class Game {
       ui.levelSubtitle.textContent = "Level 4 — Lothlórien";
       ui.ringBtn.classList.add("hidden");
       this.setLothlorienQuestStage(0);
-      showMessage("Welcome to Caras Galadhon. Follow the guarded white stairs to Galadriel.", 3600);
+      showMessage("Welcome to Caras Galadhon. Follow the guarded white ramps to Galadriel.", 3600);
     } else if (levelId === "moria") {
       buildMoriaLevel(this);
       this.moriaBuilt = true;
@@ -2290,6 +2531,10 @@ class Game {
     if (this.rivendellGroup) this.rivendellGroup.visible = levelId === "rivendell";
     if (this.moriaGroup) this.moriaGroup.visible = levelId === "moria";
     if (this.lothlorienGroup) this.lothlorienGroup.visible = levelId === "lothlorien";
+    if (this.anduinGroup) this.anduinGroup.visible = levelId === "anduin";
+    for (const boat of this.anduinBoats || []) {
+      boat.root.visible = levelId === "anduin";
+    }
     if (this.orc && this.orc.root) this.orc.root.visible = levelId === "shire";
     // Reflective water outside level groups renders a mirror pass — hide it
     // when its level is inactive so other levels don't pay for it.
@@ -2317,16 +2562,42 @@ class Game {
     });
   }
 
+  setPlayerRingGlow(amount) {
+    this.player.model.traverse((obj) => {
+      if (!obj.isMesh || !obj.material) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        if (!m.emissive) continue;
+        if (!m.userData.baseEmissive) {
+          m.userData.baseEmissive = m.emissive.clone();
+          m.userData.baseEmissiveIntensity = m.emissiveIntensity ?? 0;
+        }
+        m.emissive.setRGB(
+          m.userData.baseEmissive.r + amount * 0.85,
+          m.userData.baseEmissive.g + amount * 0.55,
+          m.userData.baseEmissive.b + amount * 0.05
+        );
+        m.emissiveIntensity = m.userData.baseEmissiveIntensity + amount * 1.8;
+      }
+    });
+  }
+
   clearInvisibility(silent = false) {
     this.ringInvisible = false;
     this.ringInvisTimer = 0;
+    this.ringFade = 1;
     this.setPlayerOpacity(1);
+    this.setPlayerRingGlow(0);
+    if (this.player?.model) {
+      this.player.model.scale.set(1, 1, 1);
+    }
     if (!silent) this.syncRingButton();
   }
 
   syncRingButton() {
     if (!ui.ringBtn) return;
-    if (this.levelId !== "shire" || !this.hasRing) {
+    const ringLevels = this.levelId === "shire" || this.levelId === "anduin";
+    if (!ringLevels || !this.hasRing) {
       ui.ringBtn.classList.add("hidden");
       return;
     }
@@ -2344,17 +2615,52 @@ class Game {
   }
 
   tryUseRing() {
-    if (this.levelId !== "shire" || !this.hasRing || this.ringInvisible || this.ringCooldownTimer > 0 || this.lyingDown) {
-      return;
-    }
+    const allowed =
+      (this.levelId === "shire" || this.levelId === "anduin") &&
+      this.hasRing &&
+      !this.ringInvisible &&
+      this.ringCooldownTimer <= 0 &&
+      !this.lyingDown &&
+      this.vehicleMode !== "boat";
+    if (!allowed) return;
+
     this.ringInvisible = true;
     this.ringInvisTimer = RING_INVIS_DURATION;
-    this.setPlayerOpacity(0.28);
+    this.ringFade = 1;
+    this.ringAnim = 0.55; // dissolve / shimmer duration
+    this.setPlayerRingGlow(1);
+    this.fx.addTrauma(0.35);
+    this.fx.flashDamage?.(0.15);
     this.syncRingButton();
-    showMessage("The Ring hides you!", 1600);
+    showMessage(
+      this.levelId === "anduin"
+        ? "The Ring takes you — slip past Boromir while you are unseen!"
+        : "The Ring hides you!",
+      2000
+    );
   }
 
   updateRingPower(delta) {
+    // Smooth dissolve into invisibility
+    if (this.ringAnim > 0) {
+      this.ringAnim = Math.max(0, this.ringAnim - delta);
+      const t = 1 - this.ringAnim / 0.55;
+      const opacity = THREE.MathUtils.lerp(1, 0.12, t);
+      this.ringFade = opacity;
+      this.setPlayerOpacity(opacity);
+      this.setPlayerRingGlow(1.2 - t * 0.6);
+      if (this.player?.model) {
+        const squash = 1 + Math.sin(t * Math.PI) * 0.08;
+        this.player.model.scale.set(1 / squash, squash, 1 / squash);
+      }
+    } else if (this.ringInvisible && this.player?.model) {
+      // Soft shimmer while invisible
+      const pulse = 0.1 + Math.sin(this.gameTime * 6) * 0.04;
+      this.setPlayerOpacity(pulse);
+      this.setPlayerRingGlow(0.35 + Math.sin(this.gameTime * 4) * 0.15);
+      this.player.model.scale.set(1, 1, 1);
+    }
+
     if (this.ringInvisible) {
       this.ringInvisTimer -= delta;
       this.syncRingButton();
@@ -2444,10 +2750,17 @@ class Game {
   getCameraRig(target, speed = 0) {
     const inside = this.location === "inside";
     const lying = this.lyingDown;
-    const distance = lying ? 2.4 : inside ? 2.85 : 6.8 + Math.min(speed * 0.12, 0.8);
-    const lookHeight = lying ? 0.7 : inside ? 0.95 : 1.15;
+    const onBoat = this.vehicleMode === "boat";
+    const distance = lying
+      ? 2.4
+      : onBoat
+        ? 9.5 + Math.min(speed * 0.08, 0.6)
+        : inside
+          ? 2.85
+          : 6.8 + Math.min(speed * 0.12, 0.8);
+    const lookHeight = lying ? 0.7 : onBoat ? 1.45 : inside ? 0.95 : 1.15;
     const bob =
-      this.player.onGround && !inside
+      this.player.onGround && !inside && !onBoat
         ? Math.sin(this.player.walkPhase * 2) * Math.min(speed, 3) * 0.015
         : 0;
     const cosPitch = Math.cos(this.cameraPitch);
@@ -2594,6 +2907,10 @@ class Game {
         animateMoriaWorld(this, this.gameTime);
       } else if (this.levelId === "lothlorien") {
         updateLothlorienLevel(this, this.gameTime);
+      } else if (this.levelId === "anduin") {
+        updateAnduinBoat(this, delta);
+        updateAnduinLevel(this, this.gameTime, delta);
+        this.updateRingPower(delta);
       }
       this.updateActionUi();
       this.updateHitSparks(delta);

@@ -56,6 +56,20 @@ function addGround(game, minX, maxX, minZ, maxZ, height) {
   });
 }
 
+// Sloped ground used by ramps: getGroundHeight interpolates along +Z.
+function addGroundRamp(game, minX, maxX, minZ, maxZ, heightStart, heightEnd) {
+  game.groundHeights.push({
+    minX: LOTHLORIEN_ORIGIN.x + minX,
+    maxX: LOTHLORIEN_ORIGIN.x + maxX,
+    minZ: LOTHLORIEN_ORIGIN.z + minZ,
+    maxZ: LOTHLORIEN_ORIGIN.z + maxZ,
+    heightStart,
+    heightEnd,
+    rampAxis: "z",
+    level: "lothlorien",
+  });
+}
+
 function addMallorn(game, group, x, z, scale = 1, platformHeight = null) {
   const bark = mat(0xb7aa86, { roughness: 0.9 });
   const trunk = mesh(new THREE.CylinderGeometry(0.85 * scale, 1.1 * scale, 18 * scale, 14), bark);
@@ -202,22 +216,57 @@ function addSafeBridge(game, group, {
   }
 }
 
-function addStairs(game, group, startZ, count, startHeight, endHeight) {
-  const stepDepth = 2.25;
-  const stepWidth = 7;
-  for (let i = 0; i < count; i += 1) {
-    const t = (i + 1) / count;
-    const height = THREE.MathUtils.lerp(startHeight, endHeight, t);
-    const z = startZ + i * stepDepth;
-    const step = mesh(
-      new THREE.BoxGeometry(stepWidth, height, stepDepth + 0.12),
-      mat(0xe5ddc5, { roughness: 0.84 })
-    );
-    step.position.set(0, height / 2, z);
-    group.add(step);
-    addGround(game, -stepWidth / 2, stepWidth / 2, z - stepDepth / 2, z + stepDepth / 2, height);
-    addCollider(game, -4.1, -3.5, height - 0.3, height + 1.4, z - stepDepth / 2, z + stepDepth / 2);
-    addCollider(game, 3.5, 4.1, height - 0.3, height + 1.4, z - stepDepth / 2, z + stepDepth / 2);
+// Same footprint as the old 8-step stairs (count * 2.25), but a continuous ramp
+// so movement no longer snags on discrete step faces.
+function addRamp(game, group, startZ, count, startHeight, endHeight) {
+  const length = count * 2.25;
+  const width = 7;
+  const endZ = startZ + length;
+  const rise = endHeight - startHeight;
+  const slopeLen = Math.hypot(length, rise);
+  const angle = Math.atan2(rise, length);
+  const midZ = startZ + length / 2;
+  const midY = (startHeight + endHeight) / 2;
+
+  const deck = mesh(
+    new THREE.BoxGeometry(width, 0.34, slopeLen),
+    mat(0xe5ddc5, { roughness: 0.84 })
+  );
+  deck.position.set(0, midY, midZ);
+  deck.rotation.x = -angle;
+  group.add(deck);
+
+  addGroundRamp(game, -width / 2, width / 2, startZ, endZ, startHeight, endHeight);
+
+  // Side rails follow the slope in short segments (same clearance as stairs).
+  const segments = count;
+  const segLen = length / segments;
+  const railMat = mat(0xf0e5c3, { roughness: 0.68 });
+  for (let i = 0; i < segments; i += 1) {
+    const t0 = i / segments;
+    const t1 = (i + 1) / segments;
+    const h0 = THREE.MathUtils.lerp(startHeight, endHeight, t0);
+    const h1 = THREE.MathUtils.lerp(startHeight, endHeight, t1);
+    const h = (h0 + h1) / 2;
+    const z0 = startZ + i * segLen;
+    const z1 = z0 + segLen;
+    const z = (z0 + z1) / 2;
+    for (const side of [-1, 1]) {
+      const railX = side * (width / 2 - 0.12);
+      const rail = mesh(new THREE.BoxGeometry(0.1, 0.72, segLen + 0.02), railMat);
+      rail.position.set(railX, h + 0.72, z);
+      rail.rotation.x = -angle;
+      group.add(rail);
+      addCollider(
+        game,
+        railX - 0.18,
+        railX + 0.18,
+        h,
+        h + 1.8,
+        z0,
+        z1
+      );
+    }
   }
 }
 
@@ -258,13 +307,13 @@ export function buildLothlorienWorld(game, group) {
   // Off to the side of the stair-top junction so the main path stays clear
   addMallorn(game, group, 8, -2, 1.1, 4);
 
-  // Broad white stairs and protected bridges connect three walkable levels.
+  // Broad white ramps and protected bridges connect three walkable levels.
   // Cross-bridge rails are opened where the central bridge joins so the
   // junctions stay walkable instead of being walled off.
-  addStairs(game, group, -18, 8, 0, 4);
+  addRamp(game, group, -18, 8, 0, 4);
   addSafeBridge(game, group, { x: 0, z: 7, width: 6, depth: 20, height: 4, axis: "z" });
   // Cross bridges need rail gaps on BOTH sides where the main path crosses:
-  // the near side meets the central bridge, the far side meets the next stairs.
+  // the near side meets the central bridge, the far side meets the next ramp.
   addSafeBridge(game, group, {
     x: -10, z: 18, width: 20, depth: 4, height: 4, axis: "x",
     openings: [{ side: -1, from: -3.8, to: 3.8 }, { side: 1, from: -3.8, to: 3.8 }],
@@ -273,7 +322,7 @@ export function buildLothlorienWorld(game, group) {
     x: 10, z: 18, width: 20, depth: 4, height: 4, axis: "x",
     openings: [{ side: -1, from: -3.8, to: 3.8 }, { side: 1, from: -3.8, to: 3.8 }],
   });
-  addStairs(game, group, 18, 8, 4, 8);
+  addRamp(game, group, 18, 8, 4, 8);
   // Rails stay closed over the exposed gap (z 30–34) but open onto the broad
   // top talan so the fountain and mirror are reachable.
   addSafeBridge(game, group, {

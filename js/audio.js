@@ -281,6 +281,10 @@ export class Sfx {
       nodes.push(...this.loopTone(gain, { freq: 493.9, type: "sine", volume: 0.005, wobbleRate: 0.22, wobbleDepth: 2 }));
       nodes.push(...this.loopTone(gain, { freq: 587.3, type: "sine", volume: 0.004, wobbleRate: 0.17, wobbleDepth: 2 }));
       this.scheduleBirds();
+    } else if (levelId === "anduin") {
+      nodes.push(...this.loopNoise(gain, { filterType: "bandpass", freq: 900, q: 0.55, lfoRate: 0.35, lfoDepth: 280, volume: 0.036 }));
+      nodes.push(...this.loopNoise(gain, { filterType: "lowpass", freq: 220, lfoRate: 0.12, lfoDepth: 80, volume: 0.022 }));
+      nodes.push(...this.loopTone(gain, { freq: 110, type: "sine", volume: 0.008, wobbleRate: 0.08, wobbleDepth: 3 }));
     }
 
     const t0 = this.ctx.currentTime;
