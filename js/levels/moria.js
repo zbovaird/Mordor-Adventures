@@ -447,7 +447,7 @@ export function updateMoriaActors(game, delta, time) {
   if (allOrcsDefeated && game.balrog?.alive && !game.balrog.active) {
     game.balrog.active = true;
     game.balrog.marching = true;
-    game.sfx?.balrogRoar?.();
+    game.sfx?.balrogEntrance?.();
     game.fx?.addTrauma?.(0.7);
     game.showGameMessage?.("Durin's Bane strides across the bridge into the great hall!", 3600);
     game.refreshMoriaHud?.();

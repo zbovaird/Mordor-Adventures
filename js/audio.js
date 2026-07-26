@@ -6,6 +6,7 @@ export class Sfx {
     this.ambience = null;
     this.ambienceLevel = null;
     this.birdTimer = null;
+    this.dripTimer = null;
   }
 
   init() {
@@ -143,6 +144,15 @@ export class Sfx {
     this.noise({ duration: 1.2, volume: 0.08, filterType: "lowpass", filterFreq: 320 });
   }
 
+  /** Louder entrance sting when the Balrog awakens after the orc fight. */
+  balrogEntrance() {
+    this.balrogRoar();
+    this.tone({ frequency: 36, slideTo: 28, duration: 2.2, type: "sine", volume: 0.1 });
+    this.tone({ frequency: 55, slideTo: 40, duration: 1.8, type: "sawtooth", volume: 0.08 });
+    this.noise({ duration: 1.6, volume: 0.1, filterType: "lowpass", filterFreq: 220, slideTo: 90 });
+    this.noise({ duration: 0.35, volume: 0.09, filterType: "highpass", filterFreq: 800 });
+  }
+
   whipCrack() {
     this.noise({ duration: 0.09, volume: 0.11, filterType: "highpass", filterFreq: 1500 });
     this.tone({ frequency: 90, slideTo: 45, duration: 0.22, type: "square", volume: 0.07 });
@@ -165,6 +175,10 @@ export class Sfx {
     if (this.birdTimer) {
       window.clearTimeout(this.birdTimer);
       this.birdTimer = null;
+    }
+    if (this.dripTimer) {
+      window.clearTimeout(this.dripTimer);
+      this.dripTimer = null;
     }
     if (!this.ambience) return;
     const { gain, nodes } = this.ambience;
@@ -254,6 +268,48 @@ export class Sfx {
     }, delay);
   }
 
+  /** Occasional water drips / distant metallic echoes in the mines. */
+  scheduleMoriaDrips() {
+    if (!this.ambience || this.ambienceLevel !== "moria") return;
+    const delay = 1800 + Math.random() * 4200;
+    this.dripTimer = window.setTimeout(() => {
+      if (!this.ambience || this.ambienceLevel !== "moria") return;
+      if (Math.random() < 0.65) {
+        // Water drip
+        this.tone({
+          frequency: 1400 + Math.random() * 900,
+          slideTo: 900 + Math.random() * 400,
+          duration: 0.09,
+          type: "sine",
+          volume: 0.018,
+        });
+        this.noise({
+          duration: 0.06,
+          volume: 0.022,
+          filterType: "bandpass",
+          filterFreq: 2200 + Math.random() * 800,
+          filterQ: 3,
+        });
+      } else {
+        // Distant hall echo / orc drum thud
+        this.tone({
+          frequency: 70 + Math.random() * 30,
+          slideTo: 45,
+          duration: 0.55,
+          type: "triangle",
+          volume: 0.02,
+        });
+        this.noise({
+          duration: 0.4,
+          volume: 0.018,
+          filterType: "lowpass",
+          filterFreq: 280,
+        });
+      }
+      this.scheduleMoriaDrips();
+    }, delay);
+  }
+
   startAmbience(levelId) {
     if (!this.enabled || !this.ctx) return;
     if (this.ambienceLevel === levelId) return;
@@ -273,9 +329,13 @@ export class Sfx {
       nodes.push(...this.loopNoise(gain, { filterType: "lowpass", freq: 260, lfoRate: 0.1, lfoDepth: 90, volume: 0.02 }));
       this.scheduleBirds();
     } else if (levelId === "moria") {
-      nodes.push(...this.loopTone(gain, { freq: 47, type: "sine", volume: 0.028, wobbleRate: 0.07, wobbleDepth: 4 }));
-      nodes.push(...this.loopTone(gain, { freq: 63, type: "triangle", volume: 0.012, wobbleRate: 0.11, wobbleDepth: 5 }));
-      nodes.push(...this.loopNoise(gain, { filterType: "lowpass", freq: 140, lfoRate: 0.05, lfoDepth: 60, volume: 0.02 }));
+      nodes.push(...this.loopTone(gain, { freq: 47, type: "sine", volume: 0.03, wobbleRate: 0.07, wobbleDepth: 4 }));
+      nodes.push(...this.loopTone(gain, { freq: 63, type: "triangle", volume: 0.014, wobbleRate: 0.11, wobbleDepth: 5 }));
+      nodes.push(...this.loopTone(gain, { freq: 94, type: "sine", volume: 0.006, wobbleRate: 0.05, wobbleDepth: 2 }));
+      nodes.push(...this.loopNoise(gain, { filterType: "lowpass", freq: 140, lfoRate: 0.05, lfoDepth: 60, volume: 0.022 }));
+      nodes.push(...this.loopNoise(gain, { filterType: "bandpass", freq: 480, q: 0.7, lfoRate: 0.08, lfoDepth: 90, volume: 0.01 }));
+      nodes.push(...this.loopNoise(gain, { filterType: "highpass", freq: 2800, q: 0.5, volume: 0.0035 }));
+      this.scheduleMoriaDrips();
     } else if (levelId === "lothlorien") {
       nodes.push(...this.loopNoise(gain, { filterType: "lowpass", freq: 420, lfoRate: 0.18, lfoDepth: 200, volume: 0.024 }));
       nodes.push(...this.loopTone(gain, { freq: 493.9, type: "sine", volume: 0.005, wobbleRate: 0.22, wobbleDepth: 2 }));
